@@ -37,3 +37,6 @@ logs/
 *.tmp
 *.temp
 .DS_Store
+
+# Local scripts
+script/
