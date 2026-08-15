@@ -1,0 +1,39 @@
+# Java build outputs
+target/
+build/
+out/
+*.class
+*.jar
+*.war
+*.ear
+
+# Frontend dependencies and build outputs
+web/node_modules/
+web/dist/
+
+# Maven and Gradle local state
+.mvn/timing.properties
+.gradle/
+
+# IDE settings
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+.vscode/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+application-local.properties
+application-local.yml
+application-local.yaml
+
+# Logs, reports, and temporary files
+*.log
+logs/
+*.tmp
+*.temp
+.DS_Store
