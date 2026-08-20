@@ -11,4 +11,4 @@ spring:
           model: qwen3.8-max
 
 looptrip:
-  chapter: 3
+  chapter: 4

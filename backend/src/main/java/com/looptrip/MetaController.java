@@ -26,8 +26,8 @@ public class MetaController {
         return new MetaResponse(
                 chapter,
                 model,
-                List.of("http-api", "chat-client-ready", "direct-llm-call"),
-                List.of("travel-planning", "tools", "agent-loop", "database"));
+                List.of("http-api", "chat-client-ready", "direct-llm-call", "travel-fact-tools", "planning-loop"),
+                List.of("structured-trip-plan", "constraint-checker", "database"));
     }
 
     public record MetaResponse(

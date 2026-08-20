@@ -1,0 +1,34 @@
+[
+  {
+    "city": "杭州",
+    "date": "2026-10-01",
+    "weather": "多云",
+    "minTemperature": 20,
+    "maxTemperature": 27,
+    "precipitationProbability": 20
+  },
+  {
+    "city": "杭州",
+    "date": "2026-10-02",
+    "weather": "小雨",
+    "minTemperature": 19,
+    "maxTemperature": 24,
+    "precipitationProbability": 70
+  },
+  {
+    "city": "杭州",
+    "date": "2026-10-03",
+    "weather": "阴",
+    "minTemperature": 18,
+    "maxTemperature": 25,
+    "precipitationProbability": 35
+  },
+  {
+    "city": "上海",
+    "date": "2026-10-01",
+    "weather": "晴",
+    "minTemperature": 21,
+    "maxTemperature": 28,
+    "precipitationProbability": 10
+  }
+]

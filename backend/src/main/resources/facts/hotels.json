@@ -1,0 +1,23 @@
+[
+  {
+    "name": "湖滨课程酒店",
+    "city": "杭州",
+    "area": "湖滨",
+    "pricePerNight": 680,
+    "rating": 4.7
+  },
+  {
+    "name": "运河课程客栈",
+    "city": "杭州",
+    "area": "拱宸桥",
+    "pricePerNight": 420,
+    "rating": 4.5
+  },
+  {
+    "name": "外滩课程酒店",
+    "city": "上海",
+    "area": "外滩",
+    "pricePerNight": 880,
+    "rating": 4.6
+  }
+]

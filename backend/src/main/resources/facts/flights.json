@@ -1,0 +1,26 @@
+[
+  {
+    "flightNumber": "MU5211",
+    "origin": "上海",
+    "destination": "杭州",
+    "departureTime": "2026-10-01T08:10:00",
+    "arrivalTime": "2026-10-01T09:15:00",
+    "price": 520
+  },
+  {
+    "flightNumber": "HO1123",
+    "origin": "上海",
+    "destination": "杭州",
+    "departureTime": "2026-10-01T14:20:00",
+    "arrivalTime": "2026-10-01T15:25:00",
+    "price": 460
+  },
+  {
+    "flightNumber": "MU5212",
+    "origin": "杭州",
+    "destination": "上海",
+    "departureTime": "2026-10-03T19:10:00",
+    "arrivalTime": "2026-10-03T20:20:00",
+    "price": 560
+  }
+]

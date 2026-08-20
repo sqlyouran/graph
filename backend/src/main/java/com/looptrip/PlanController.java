@@ -9,14 +9,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/plan")
 public class PlanController {
 
-    private final PlanChatService planChatService;
+    private final TravelPlanningEngine planningEngine;
 
-    public PlanController(PlanChatService planChatService) {
-        this.planChatService = planChatService;
+    public PlanController(TravelPlanningEngine planningEngine) {
+        this.planningEngine = planningEngine;
     }
 
     @PostMapping("/ask")
-    public AskResponse ask(@RequestBody AskRequest request) {
-        return planChatService.ask(request.question());
+    public PlanResponse ask(@RequestBody PlanRequest request) {
+        return planningEngine.plan(request);
     }
 }

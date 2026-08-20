@@ -18,7 +18,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiErrorResponse> handleUnreadableRequest() {
         return ResponseEntity.badRequest()
-                .body(new ApiErrorResponse("BAD_REQUEST", "request body must contain question"));
+                .body(new ApiErrorResponse("BAD_REQUEST", "request body is missing or malformed"));
     }
 
     @ExceptionHandler(ModelCallException.class)

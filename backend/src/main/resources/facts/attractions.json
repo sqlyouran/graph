@@ -1,0 +1,32 @@
+[
+  {
+    "name": "西湖风景名胜区",
+    "city": "杭州",
+    "area": "西湖区",
+    "ticketPrice": 0,
+    "openTime": "00:00:00",
+    "closeTime": "23:59:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 240
+  },
+  {
+    "name": "中国大运河博物馆",
+    "city": "杭州",
+    "area": "萧山区",
+    "ticketPrice": 0,
+    "openTime": "09:00:00",
+    "closeTime": "17:00:00",
+    "closedDays": ["MONDAY"],
+    "recommendedDurationMinutes": 180
+  },
+  {
+    "name": "上海博物馆东馆",
+    "city": "上海",
+    "area": "浦东新区",
+    "ticketPrice": 0,
+    "openTime": "10:00:00",
+    "closeTime": "18:00:00",
+    "closedDays": ["TUESDAY"],
+    "recommendedDurationMinutes": 180
+  }
+]

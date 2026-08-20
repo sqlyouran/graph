@@ -45,9 +45,13 @@ type Meta = {
 type ViewState = "idle" | "loading" | "done" | "error";
 
 type FormValues = {
+  origin: string;
   destination: string;
+  startDate: string;
   days: string;
   budget: string;
+  maxHotelPrice: string;
+  maxRounds: string;
   preferences: string;
 };
 
@@ -57,12 +61,38 @@ type PlanResult = {
   markdown: string;
   model: string;
   durationMs: number;
+  status: "COMPLETED" | "MAX_ROUNDS";
+  stopReason: string;
+  problems: string[];
+  rounds: PlanningRound[];
+  events: PlanningEvent[];
 };
 
-type AskResponse = {
+type PlanningEvent = {
+  sequence: number;
+  round: number;
+  type: string;
+  message: string;
+  details: Record<string, unknown>;
+};
+
+type PlanningRound = {
+  round: number;
+  markdown: string;
+  review: { passed: boolean; problems: string[] };
+  feedbackReceived: string[];
+  events: PlanningEvent[];
+};
+
+type PlanResponse = {
   answer: string;
   model: string;
   elapsedMs: number;
+  status: "COMPLETED" | "MAX_ROUNDS";
+  stopReason: string;
+  problems: string[];
+  rounds: PlanningRound[];
+  events: PlanningEvent[];
 };
 
 type ApiErrorResponse = {
@@ -71,39 +101,62 @@ type ApiErrorResponse = {
 };
 
 const initialForm: FormValues = {
+  origin: "上海",
   destination: "杭州",
+  startDate: "2026-10-01",
   days: "3",
   budget: "3000",
+  maxHotelPrice: "700",
+  maxRounds: "2",
   preferences: "喜欢自然风景、本地小吃，行程不要太赶",
 };
 
-async function requestPlan(question: string): Promise<PlanResult> {
+async function requestPlan(values: FormValues): Promise<PlanResult> {
   if (USE_MOCK) {
     await new Promise((resolve) => window.setTimeout(resolve, MOCK_DELAY_MS));
     return {
       markdown: MOCK_TRIP,
       model: MOCK_MODEL,
       durationMs: MOCK_DELAY_MS,
+      status: "COMPLETED",
+      stopReason: "基础契约通过",
+      problems: [],
+      rounds: [],
+      events: [],
     };
   }
 
   const response = await fetch("/api/plan/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      origin: values.origin.trim(),
+      destination: values.destination.trim(),
+      startDate: values.startDate,
+      days: Number(values.days),
+      budget: Number(values.budget),
+      maxHotelPrice: Number(values.maxHotelPrice),
+      preferences: values.preferences.trim(),
+      maxRounds: Number(values.maxRounds),
+    }),
   });
-  const payload = (await response.json()) as AskResponse | ApiErrorResponse;
+  const payload = (await response.json()) as PlanResponse | ApiErrorResponse;
 
   if (!response.ok) {
     const apiError = payload as ApiErrorResponse;
     throw new Error(apiError.message || `规划请求失败（${response.status}）`);
   }
 
-  const plan = payload as AskResponse;
+  const plan = payload as PlanResponse;
   return {
     markdown: plan.answer,
     model: plan.model,
     durationMs: plan.elapsedMs,
+    status: plan.status,
+    stopReason: plan.stopReason,
+    problems: plan.problems,
+    rounds: plan.rounds,
+    events: plan.events,
   };
 }
 
@@ -111,16 +164,32 @@ function validate(values: FormValues): FieldErrors {
   const errors: FieldErrors = {};
   const days = Number(values.days);
   const budget = Number(values.budget);
+  const maxHotelPrice = Number(values.maxHotelPrice);
+  const maxRounds = Number(values.maxRounds);
 
+  if (!values.origin.trim()) errors.origin = "请输入出发地";
   if (!values.destination.trim()) errors.destination = "请输入目的地";
+  if (!isIsoDate(values.startDate)) errors.startDate = "请选择有效的出发日期";
   if (!Number.isInteger(days) || days < 1 || days > 7) errors.days = "天数需为 1 至 7 天";
   if (!Number.isFinite(budget) || budget <= 0) errors.budget = "预算需大于 0";
+  if (!Number.isFinite(maxHotelPrice) || maxHotelPrice <= 0) errors.maxHotelPrice = "每晚限价需大于 0";
+  if (!Number.isInteger(maxRounds) || maxRounds < 1 || maxRounds > 5) errors.maxRounds = "轮次需为 1 至 5";
   return errors;
 }
 
 function buildRequest(values: FormValues) {
   const preference = values.preferences.trim() || "没有特别偏好";
-  return `请为我规划一次前往${values.destination.trim()}的${values.days}天旅行，总预算为${values.budget}元，偏好是${preference}。`;
+  return `请为我规划一次${values.startDate}从${values.origin.trim()}飞往${values.destination.trim()}的${values.days}日旅行。总预算为${values.budget}元，酒店每晚不超过${values.maxHotelPrice}元，偏好是${preference}。请查询航班、酒店、景点和每天的天气，并按天输出。`;
+}
+
+function isIsoDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 export function App() {
@@ -177,10 +246,11 @@ export function App() {
     const naturalLanguageRequest = buildRequest(form);
     setRequestText(naturalLanguageRequest);
     setPlanError("");
+    setResult(null);
     setViewState("loading");
 
     try {
-      const plan = await requestPlan(naturalLanguageRequest);
+      const plan = await requestPlan(form);
       setResult(plan);
       setViewState("done");
     } catch (error) {
@@ -191,7 +261,16 @@ export function App() {
 
   function previewState(state: ViewState) {
     if (state === "done" && !result) {
-      setResult({ markdown: MOCK_TRIP, model: MOCK_MODEL, durationMs: MOCK_DELAY_MS });
+      setResult({
+        markdown: MOCK_TRIP,
+        model: MOCK_MODEL,
+        durationMs: MOCK_DELAY_MS,
+        status: "COMPLETED",
+        stopReason: "基础契约通过",
+        problems: [],
+        rounds: [],
+        events: [],
+      });
     }
     if (state === "error") setPlanError("模拟规划服务异常，请稍后重试");
     setViewState(state);
@@ -223,7 +302,17 @@ export function App() {
             <h2 className="mt-1 text-xl font-semibold">从哪里出发？</h2>
           </div>
 
-          <form className="space-y-5" onSubmit={handleSubmit} noValidate>
+          <form className="space-y-4" onSubmit={handleSubmit} noValidate>
+            <Field label="出发地" error={fieldErrors.origin}>
+              <input
+                className={inputClass(Boolean(fieldErrors.origin))}
+                value={form.origin}
+                onChange={(event) => updateField("origin", event.target.value)}
+                placeholder="例如：上海"
+                aria-invalid={Boolean(fieldErrors.origin)}
+              />
+            </Field>
+
             <Field label="目的地" error={fieldErrors.destination}>
               <input
                 className={inputClass(Boolean(fieldErrors.destination))}
@@ -231,6 +320,16 @@ export function App() {
                 onChange={(event) => updateField("destination", event.target.value)}
                 placeholder="例如：杭州"
                 aria-invalid={Boolean(fieldErrors.destination)}
+              />
+            </Field>
+
+            <Field label="出发日期" error={fieldErrors.startDate}>
+              <input
+                className={inputClass(Boolean(fieldErrors.startDate))}
+                type="date"
+                value={form.startDate}
+                onChange={(event) => updateField("startDate", event.target.value)}
+                aria-invalid={Boolean(fieldErrors.startDate)}
               />
             </Field>
 
@@ -263,6 +362,35 @@ export function App() {
                 </div>
               </Field>
             </div>
+
+            <Field label="酒店每晚限价" error={fieldErrors.maxHotelPrice}>
+              <div className="relative">
+                <input
+                  className={`${inputClass(Boolean(fieldErrors.maxHotelPrice))} pr-9`}
+                  type="number"
+                  min="1"
+                  value={form.maxHotelPrice}
+                  onChange={(event) => updateField("maxHotelPrice", event.target.value)}
+                  aria-invalid={Boolean(fieldErrors.maxHotelPrice)}
+                />
+                <span className="pointer-events-none absolute right-3 top-2.5 text-sm text-zinc-400">元</span>
+              </div>
+            </Field>
+
+            <Field label="最大修订轮次" error={fieldErrors.maxRounds}>
+              <div className="relative">
+                <input
+                  className={`${inputClass(Boolean(fieldErrors.maxRounds))} pr-9`}
+                  type="number"
+                  min="1"
+                  max="5"
+                  value={form.maxRounds}
+                  onChange={(event) => updateField("maxRounds", event.target.value)}
+                  aria-invalid={Boolean(fieldErrors.maxRounds)}
+                />
+                <span className="pointer-events-none absolute right-3 top-2.5 text-sm text-zinc-400">轮</span>
+              </div>
+            </Field>
 
             <Field label="偏好">
               <textarea
@@ -320,9 +448,7 @@ export function App() {
             <Clock3 size={18} aria-hidden="true" />
             <h2 className="text-sm font-semibold">执行过程</h2>
           </div>
-          <div className="mt-5 border-l-2 border-dashed border-zinc-200 py-1 pl-4 text-sm leading-6 text-zinc-500">
-            执行过程将在第 4 章启用
-          </div>
+          <ProcessView state={viewState} result={result} />
         </aside>
       </div>
     </main>
@@ -388,12 +514,13 @@ function LoadingView({ seconds, request }: { seconds: number; request: string })
 }
 
 function DoneView({ result, request }: { result: PlanResult; request: string }) {
+  const completed = result.status === "COMPLETED";
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 px-6 py-4 sm:px-8">
-        <div className="flex items-center gap-2 text-sm font-medium text-emerald-700">
-          <CheckCircle2 size={17} aria-hidden="true" />
-          规划完成
+        <div className={`flex items-center gap-2 text-sm font-medium ${completed ? "text-emerald-700" : "text-orange-700"}`}>
+          {completed ? <CheckCircle2 size={17} aria-hidden="true" /> : <AlertCircle size={17} aria-hidden="true" />}
+          {completed ? "规划完成" : "已达最大轮次"}
         </div>
         <div className="flex items-center gap-2 text-xs text-zinc-600">
           <span className="border border-zinc-200 bg-zinc-50 px-2 py-1">{result.model}</span>
@@ -401,6 +528,10 @@ function DoneView({ result, request }: { result: PlanResult; request: string }) 
             {(result.durationMs / 1_000).toFixed(1)}s
           </span>
         </div>
+      </div>
+      <div className={`border-b px-6 py-3 text-xs sm:px-8 ${completed ? "border-emerald-100 bg-emerald-50 text-emerald-800" : "border-orange-100 bg-orange-50 text-orange-800"}`}>
+        {result.stopReason} · 共执行 {result.rounds.length} 轮
+        {!completed && result.problems.length > 0 && ` · 未解决：${result.problems.join("；")}`}
       </div>
       <article className="px-6 py-7 sm:px-8">
         <ReactMarkdown
@@ -419,6 +550,47 @@ function DoneView({ result, request }: { result: PlanResult; request: string }) 
         {request && <p className="mt-8 border-t border-zinc-100 pt-4 text-xs leading-5 text-zinc-400">请求：{request}</p>}
       </article>
     </div>
+  );
+}
+
+function ProcessView({ state, result }: { state: ViewState; result: PlanResult | null }) {
+  if (state === "loading") {
+    return (
+      <div className="mt-5 border-l-2 border-emerald-300 py-1 pl-4 text-sm text-zinc-600">
+        Loop 正在执行，完成后返回完整事件。
+      </div>
+    );
+  }
+
+  if (!result || result.events.length === 0) {
+    return (
+      <div className="mt-5 border-l-2 border-dashed border-zinc-200 py-1 pl-4 text-sm leading-6 text-zinc-500">
+        提交规划后显示轮次、工具、检查与反馈。
+      </div>
+    );
+  }
+
+  return (
+    <ol className="mt-5 space-y-4">
+      {result.events.map((event) => {
+        const isFinal = event.type === "COMPLETED" || event.type === "MAX_ROUNDS_REACHED";
+        return (
+          <li key={event.sequence} className="grid grid-cols-[18px_1fr] gap-3">
+            <div className={`mt-1 size-2.5 ${isFinal ? (result.status === "COMPLETED" ? "bg-emerald-500" : "bg-orange-500") : "bg-zinc-300"}`} />
+            <div className="min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase text-zinc-400">第 {event.round} 轮</span>
+                {event.type === "TOOL_CALLED" && <span className="text-[10px] text-emerald-700">工具</span>}
+              </div>
+              <p className="mt-0.5 text-xs leading-5 text-zinc-700">{event.message}</p>
+              {event.type === "REVIEW_COMPLETED" && Array.isArray(event.details.problems) && event.details.problems.length > 0 && (
+                <p className="mt-1 text-[11px] leading-4 text-orange-700">{event.details.problems.join("；")}</p>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
