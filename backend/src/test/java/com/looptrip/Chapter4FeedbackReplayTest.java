@@ -15,7 +15,7 @@ class Chapter4FeedbackReplayTest {
 
         assertThat(result.status()).isEqualTo(PlanStatus.COMPLETED);
         assertThat(result.roundsUsed()).isEqualTo(1);
-        assertThat(result.rounds()).singleElement().satisfies(round -> assertThat(round.review().passed()).isTrue());
+        assertThat(result.rounds()).singleElement().satisfies(round -> assertThat(round.passed()).isTrue());
         print(result, policy);
     }
 
@@ -26,12 +26,12 @@ class Chapter4FeedbackReplayTest {
 
         assertThat(result.status()).isEqualTo(PlanStatus.COMPLETED);
         assertThat(result.roundsUsed()).isEqualTo(2);
-        assertThat(result.rounds().get(0).review().problems()).contains("缺少第 3 天安排");
+        assertThat(result.rounds().get(0).problems()).contains("缺少第 3 天安排");
         assertThat(result.rounds().get(1).feedbackReceived()).containsExactly("缺少第 3 天安排");
         assertThat(policy.inputs().get(1).originalRequest()).isEqualTo(request(3));
         assertThat(policy.inputs().get(1).previousPlan()).isEqualTo(result.rounds().get(0).plan());
         assertThat(policy.secondRoundReceivedFeedback()).isTrue();
-        assertThat(result.rounds().get(1).review().passed()).isTrue();
+        assertThat(result.rounds().get(1).passed()).isTrue();
         print(result, policy);
     }
 
@@ -43,7 +43,7 @@ class Chapter4FeedbackReplayTest {
         assertThat(result.status()).isEqualTo(PlanStatus.MAX_ROUNDS);
         assertThat(result.roundsUsed()).isEqualTo(2);
         assertThat(result.rounds()).allSatisfy(round ->
-                assertThat(round.review().problems()).contains("缺少第 3 天安排"));
+                assertThat(round.problems()).contains("缺少第 3 天安排"));
         assertThat(policy.secondRoundReceivedFeedback()).isFalse();
         assertThat(result.problems()).contains("缺少第 3 天安排");
         print(result, policy);
@@ -82,12 +82,12 @@ class Chapter4FeedbackReplayTest {
                 System.out.println("第 " + round.round() + " 轮收到上一轮反馈 = " + policy.secondRoundReceivedFeedback());
             }
             System.out.println("生成候选（脚本化替身）");
-            if (round.review().passed()) {
+            if (round.passed()) {
                 System.out.println("✅ 基础契约通过");
             } else {
-                System.out.println("❌ 基础契约未通过：" + String.join("，", round.review().problems()));
+                System.out.println("❌ 两层验收未通过：" + String.join("，", round.problems()));
                 if (round.round() < result.roundsUsed()) {
-                    System.out.println("带 " + round.review().problems().size() + " 条问题进入下一轮");
+                    System.out.println("带 " + round.problems().size() + " 条问题进入下一轮");
                 }
             }
         }

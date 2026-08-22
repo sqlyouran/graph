@@ -18,6 +18,7 @@ public class PlanChatService implements PlanGenerator {
             航班、酒店、景点和天气的价格、日期与时间必须来自对应工具，引用价格时保持工具返回的原值。
             需要这些事实时主动调用工具；工具返回空列表时，明确回复“该城市/日期暂无数据”，不得用常识、平均值、默认项目或其他日期补造事实。
             返回完整 TripPlan 结构。保留航班号、酒店名和景点名的工具原值，日期使用 yyyy-MM-dd，时间使用 HH:mm。
+            活动类型只使用 ATTRACTION、MEAL、TRANSFER；景点、用餐、交通分别对应这三个值。
             price 字段可以转述工具价格用于排查；不要计算或返回总花费。
             """;
 
@@ -77,10 +78,9 @@ public class PlanChatService implements PlanGenerator {
                     """.formatted(originalRequest);
         }
 
-        String feedback = input.feedbackProblems().stream()
-                .map(problem -> "- " + problem)
-                .reduce((left, right) -> left + "\n" + right)
-                .orElse("- 无");
+        String feedback = input.feedbackProblems().isEmpty()
+                ? "无"
+                : String.join("\n", input.feedbackProblems());
         return """
                 【原始需求】
                 %s
@@ -92,7 +92,7 @@ public class PlanChatService implements PlanGenerator {
                 %s
 
                 【修订要求】
-                保留已合格部分，逐项修复上述问题，并返回一份完整修订版 TripPlan。不要只返回差异或补丁。
+                保留已合格部分，逐项修复上述问题，并返回完整修订版，不要只返回差异或补丁。
                 """.formatted(originalRequest, serialize(input.previousPlan()), feedback);
     }
 
@@ -109,8 +109,9 @@ public class PlanChatService implements PlanGenerator {
         String preferences = StringUtils.hasText(request.preferences())
                 ? request.preferences().trim()
                 : "没有特别偏好";
+        String mustVisit = request.mustVisit().isEmpty() ? "无" : String.join("、", request.mustVisit());
         return """
-                从%s出发，前往%s，开始日期%s，共%d天，总预算%d元，酒店每晚不超过%d元，偏好：%s。
+                从%s出发，前往%s，开始日期%s，共%d天，总预算%d元，酒店每晚不超过%d元，偏好：%s，必去景点：%s。
                 请查询航班、酒店、景点和每天的天气，并按天输出。
                 """.formatted(
                 request.origin().trim(),
@@ -119,6 +120,7 @@ public class PlanChatService implements PlanGenerator {
                 request.days(),
                 request.budget(),
                 request.maxHotelPrice(),
-                preferences);
+                preferences,
+                mustVisit);
     }
 }

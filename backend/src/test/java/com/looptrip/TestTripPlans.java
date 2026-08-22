@@ -43,10 +43,16 @@ final class TestTripPlans {
         TravelDataService data = new TravelDataService(
                 new ObjectMapper().findAndRegisterModules(), new DefaultResourceLoader());
         data.loadFacts();
+        ConstraintProperties properties = new ConstraintProperties(
+                new ConstraintProperties.Route(2, 40),
+                new ConstraintProperties.Pace(2, 4, 540, LocalTime.of(11, 0), LocalTime.of(14, 0)));
         return new TripPlanConstraintReviewer(
                 new BudgetConstraintCheck(data),
                 new TimeConflictConstraintCheck(),
                 new ClosedDayConstraintCheck(data),
-                new OpeningHoursConstraintCheck(data));
+                new OpeningHoursConstraintCheck(data),
+                new RouteContinuityConstraintCheck(properties),
+                new MustVisitConstraintCheck(),
+                new DailyPaceConstraintCheck(properties));
     }
 }

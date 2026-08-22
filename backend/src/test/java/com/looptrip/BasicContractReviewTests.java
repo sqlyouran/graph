@@ -40,7 +40,24 @@ class BasicContractReviewTests {
                 new TripDayPlan(LocalDate.of(2026, 10, 3), null, java.util.List.of())));
 
         assertThat(review.review(request(), empty).problems())
-                .containsExactly("缺少住宿安排", "缺少景点或活动安排");
+                .containsExactly("缺少住宿安排", "缺少景点安排");
+    }
+
+    @Test
+    void mealAndTransferDoNotSatisfyAttractionContract() {
+        TripPlan source = TestTripPlans.complete(3);
+        TripPlan withoutAttraction = new TripPlan(
+                source.origin(), source.destination(), source.startDate(), source.days(),
+                source.outboundFlight(), source.returnFlight(),
+                source.dailyPlans().stream().map(day -> new TripDayPlan(
+                        day.date(), day.hotel(), java.util.List.of(
+                                new TripActivity("午餐", "MEAL", java.time.LocalTime.NOON,
+                                        java.time.LocalTime.of(13, 0), "湖滨", 0),
+                                new TripActivity("地铁", "TRANSFER", java.time.LocalTime.of(13, 0),
+                                        java.time.LocalTime.of(13, 30), "途中", 0))))
+                        .toList());
+
+        assertThat(review.review(request(), withoutAttraction).problems()).contains("缺少景点安排");
     }
 
     private PlanRequest request() {

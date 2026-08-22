@@ -8,14 +8,19 @@ public record PlanningRoundSnapshot(
         TripPlan plan,
         String model,
         long elapsedMs,
-        BasicContractReviewResult review,
+        List<String> problems,
         List<ConstraintCheckResult> constraintResults,
         List<String> feedbackReceived,
         List<PlanningEvent> events) {
 
     public PlanningRoundSnapshot {
+        problems = List.copyOf(problems);
         feedbackReceived = List.copyOf(feedbackReceived);
         constraintResults = List.copyOf(constraintResults);
         events = List.copyOf(events);
+    }
+
+    public boolean passed() {
+        return problems.isEmpty();
     }
 }

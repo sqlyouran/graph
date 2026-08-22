@@ -61,7 +61,7 @@ public class TravelPlanningEngine {
                 problems.addAll(contractReview.review(request, generated.plan()).problems());
                 constraintResults = constraintReviewer.review(request, generated.plan());
                 for (ConstraintCheckResult result : constraintResults) {
-                    if (!result.passed()) {
+                    if (!result.passed() && result.severity() == ConstraintSeverity.HARD) {
                         for (String suggestion : result.suggestions()) {
                             problems.add(result.code() + " " + result.name() + "：" + suggestion);
                         }
@@ -70,25 +70,25 @@ public class TravelPlanningEngine {
             } else if (problems.isEmpty()) {
                 problems.add("缺少可检查的结构化行程");
             }
-            BasicContractReviewResult review = new BasicContractReviewResult(problems.isEmpty(), problems);
+            boolean passed = problems.isEmpty();
             emit(
                     PlanningEventType.REVIEW_COMPLETED,
-                    review.passed() ? "基础契约通过" : "基础契约发现 " + review.problems().size() + " 个问题",
-                    Map.of("passed", review.passed(), "problems", review.problems(),
+                    passed ? "两层验收通过" : "两层验收发现 " + problems.size() + " 个问题",
+                    Map.of("passed", passed, "problems", problems,
                             "constraintResults", constraintResults));
 
-            if (review.passed()) {
-                emit(PlanningEventType.COMPLETED, "基础契约通过，规划完成", Map.of());
+            if (passed) {
+                emit(PlanningEventType.COMPLETED, "两层验收通过，规划完成", Map.of());
             } else if (round < request.maxRounds()) {
                 emit(
                         PlanningEventType.FEEDBACK_PREPARED,
                         "全部检查问题进入下一轮",
-                        Map.of("problems", review.problems()));
+                        Map.of("problems", problems));
             } else {
                 emit(
                         PlanningEventType.MAX_ROUNDS_REACHED,
                         "达到最大轮次，仍有未解决问题",
-                        Map.of("problems", review.problems()));
+                        Map.of("problems", problems));
             }
 
             PlanningRoundSnapshot snapshot = new PlanningRoundSnapshot(
@@ -97,38 +97,38 @@ public class TravelPlanningEngine {
                     generated.plan(),
                     generated.model(),
                     generated.elapsedMs(),
-                    review,
+                    problems,
                     constraintResults,
                     feedback,
                     List.copyOf(events.subList(firstEventIndex, events.size())));
             rounds.add(snapshot);
 
             if (bestRound == null
-                    || review.problems().size() <= bestRound.review().problems().size()) {
+                    || snapshot.problems().size() < bestRound.problems().size()) {
                 bestRound = snapshot;
             }
 
-            if (review.passed()) {
+            if (snapshot.passed()) {
                 return response(
                         bestRound,
                         totalElapsedMs,
                         PlanStatus.COMPLETED,
-                        "基础契约通过",
-                        rounds,
-                        events);
+                        "两层验收通过",
+                        rounds);
             }
 
-            previousPlan = generated.plan();
-            feedback = review.problems();
+            previousPlan = snapshot.plan();
+            feedback = snapshot.problems();
         }
 
         return response(
                 bestRound,
                 totalElapsedMs,
                 PlanStatus.MAX_ROUNDS,
-                "达到最大轮次，返回当前最好版本",
-                rounds,
-                events);
+                "达到最大轮次（" + rounds.size() + " 轮），仍有 "
+                        + bestRound.problems().size() + " 个未解决问题；返回问题最少的第 "
+                        + bestRound.round() + " 轮",
+                rounds);
     }
 
     private PlanResponse response(
@@ -136,8 +136,7 @@ public class TravelPlanningEngine {
             long elapsedMs,
             PlanStatus status,
             String stopReason,
-            List<PlanningRoundSnapshot> rounds,
-            List<PlanningEvent> events) {
+            List<PlanningRoundSnapshot> rounds) {
         return new PlanResponse(
                 bestRound.plan(),
                 bestRound.model(),
@@ -145,10 +144,8 @@ public class TravelPlanningEngine {
                 status,
                 stopReason,
                 rounds.size(),
-                bestRound.review().problems(),
-                bestRound.constraintResults(),
-                rounds,
-                events);
+                bestRound.problems(),
+                rounds);
     }
 
     private void validate(PlanRequest request) {

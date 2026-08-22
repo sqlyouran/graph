@@ -8,9 +8,24 @@ final class TripActivityClassifier {
     static boolean isAttraction(TripActivity activity) {
         if (activity == null) return false;
         String type = activity.type() == null ? "" : activity.type().trim().toLowerCase(Locale.ROOT);
+        if (type.equals("attraction")) return true;
+        if (type.equals("meal") || type.equals("transfer")) return false;
         return !(type.contains("餐") || type.contains("吃饭") || type.contains("交通")
                 || type.contains("航班") || type.contains("火车") || type.contains("打车")
                 || type.contains("步行") || type.contains("transport") || type.contains("meal")
                 || type.contains("food"));
+    }
+
+    static boolean hasType(TripActivity activity, String expected) {
+        return activity != null && activity.type() != null
+                && activity.type().trim().equalsIgnoreCase(expected);
+    }
+
+    static boolean isTransfer(TripActivity activity) {
+        return hasType(activity, "TRANSFER");
+    }
+
+    static boolean isMeal(TripActivity activity) {
+        return hasType(activity, "MEAL");
     }
 }

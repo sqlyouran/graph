@@ -36,8 +36,9 @@ public class BasicContractReview {
             problems.add("缺少住宿安排");
         }
         if (dailyPlans.stream().flatMap(item -> item.activities().stream())
-                .noneMatch(activity -> StringUtils.hasText(activity.name()))) {
-            problems.add("缺少景点或活动安排");
+                .noneMatch(activity -> TripActivityClassifier.isAttraction(activity)
+                        && StringUtils.hasText(activity.name()))) {
+            problems.add("缺少景点安排");
         }
         return new BasicContractReviewResult(problems.isEmpty(), problems);
     }

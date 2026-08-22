@@ -13,6 +13,50 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TravelPlanningEngineTests {
 
     @Test
+    void maxRoundsReturnsRoundWithFewestProblemsAndExplicitStopReason() {
+        PlanGenerator generator = input -> switch (input.round()) {
+            case 1 -> new PlanGenerationResult(TestTripPlans.complete(3), "round-1", 1,
+                    List.of("问题一", "问题二", "问题三"));
+            case 2 -> new PlanGenerationResult(TestTripPlans.complete(3), "round-2", 1,
+                    List.of("仅剩问题"));
+            default -> new PlanGenerationResult(TestTripPlans.complete(3), "round-3", 1,
+                    List.of("问题甲", "问题乙"));
+        };
+
+        PlanResponse result = engine(generator, new InMemoryPlanningEventSink()).plan(request(3));
+
+        assertThat(result.status()).isEqualTo(PlanStatus.MAX_ROUNDS);
+        assertThat(result.model()).isEqualTo("round-2");
+        assertThat(result.problems()).containsExactly("仅剩问题");
+        assertThat(result.stopReason()).isEqualTo(
+                "达到最大轮次（3 轮），仍有 1 个未解决问题；返回问题最少的第 2 轮");
+        assertThat(result.rounds()).hasSize(3);
+    }
+
+    @Test
+    void onlyHardConstraintFailuresBecomeNextRoundFeedback() {
+        List<PlanGenerationInput> inputs = new java.util.ArrayList<>();
+        PlanGenerator generator = input -> {
+            inputs.add(input);
+            return PlanGenerationResult.success(TestTripPlans.complete(3), "scripted", 1);
+        };
+        PlanRequest request = new PlanRequest("上海", "杭州", LocalDate.of(2026, 10, 1), 3,
+                3000, 700, "轻松", List.of("灵隐寺"), 2);
+
+        PlanResponse result = engine(generator, new InMemoryPlanningEventSink()).plan(request);
+
+        assertThat(result.status()).isEqualTo(PlanStatus.MAX_ROUNDS);
+        assertThat(inputs.get(1).feedbackProblems())
+                .allMatch(problem -> problem.startsWith("C6 必去景点："))
+                .noneMatch(problem -> problem.startsWith("C5") || problem.startsWith("C7"));
+        assertThat(result.rounds().get(0).constraintResults())
+                .filteredOn(item -> item.severity() == ConstraintSeverity.SOFT && !item.passed())
+                .isNotEmpty();
+        assertThat(result.rounds().get(1).feedbackReceived())
+                .containsExactlyElementsOf(result.rounds().get(0).problems());
+    }
+
+    @Test
     void structuredParseProblemEntersFeedbackLoop() {
         List<PlanGenerationInput> inputs = new java.util.ArrayList<>();
         PlanGenerator generator = input -> {
@@ -78,7 +122,16 @@ class TravelPlanningEngineTests {
                 "上海", "杭州", LocalDate.of(2026, 10, 1), 1, 3000, 700, "轻松", 1));
 
         assertThat(result.status()).isEqualTo(PlanStatus.COMPLETED);
-        assertThat(result.events()).isEmpty();
+        assertThat(result.problems()).isEmpty();
+        assertThat(result.rounds()).singleElement().satisfies(round -> {
+            assertThat(round.events()).isEmpty();
+            assertThat(round.problems()).isEmpty();
+        });
+        assertThat(result.rounds().get(0).constraintResults()).filteredOn(item -> item.code().equals("C7"))
+                .singleElement().satisfies(item -> {
+                    assertThat(item.severity()).isEqualTo(ConstraintSeverity.SOFT);
+                    assertThat(item.passed()).isFalse();
+                });
     }
 
     private TravelPlanningEngine engine(PlanGenerator generator, PlanningEventSink sink) {

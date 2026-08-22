@@ -53,6 +53,7 @@ type FormValues = {
   maxHotelPrice: string;
   maxRounds: string;
   preferences: string;
+  mustVisit: string;
 };
 
 type FieldErrors = Partial<Record<keyof FormValues, string>>;
@@ -64,9 +65,7 @@ type PlanResult = {
   status: "COMPLETED" | "MAX_ROUNDS";
   stopReason: string;
   problems: string[];
-  constraintResults: ConstraintCheckResult[];
   rounds: PlanningRound[];
-  events: PlanningEvent[];
 };
 
 type PlanningEvent = {
@@ -80,7 +79,8 @@ type PlanningEvent = {
 type PlanningRound = {
   round: number;
   plan: TripPlan | null;
-  review: { passed: boolean; problems: string[] };
+  problems: string[];
+  constraintResults: ConstraintCheckResult[];
   feedbackReceived: string[];
   events: PlanningEvent[];
 };
@@ -101,9 +101,7 @@ type PlanResponse = {
   status: "COMPLETED" | "MAX_ROUNDS";
   stopReason: string;
   problems: string[];
-  constraintResults: ConstraintCheckResult[];
   rounds: PlanningRound[];
-  events: PlanningEvent[];
 };
 
 type TripFlight = {
@@ -152,6 +150,7 @@ const initialForm: FormValues = {
   maxHotelPrice: "700",
   maxRounds: "2",
   preferences: "喜欢自然风景、本地小吃，行程不要太赶",
+  mustVisit: "西湖、灵隐寺",
 };
 
 async function requestPlan(values: FormValues): Promise<PlanResult> {
@@ -164,9 +163,7 @@ async function requestPlan(values: FormValues): Promise<PlanResult> {
       status: "COMPLETED",
       stopReason: "基础契约通过",
       problems: [],
-      constraintResults: [],
       rounds: [],
-      events: [],
     };
   }
 
@@ -181,6 +178,7 @@ async function requestPlan(values: FormValues): Promise<PlanResult> {
       budget: Number(values.budget),
       maxHotelPrice: Number(values.maxHotelPrice),
       preferences: values.preferences.trim(),
+      mustVisit: parseMustVisit(values.mustVisit),
       maxRounds: Number(values.maxRounds),
     }),
   });
@@ -199,9 +197,7 @@ async function requestPlan(values: FormValues): Promise<PlanResult> {
     status: plan.status,
     stopReason: plan.stopReason,
     problems: plan.problems,
-    constraintResults: plan.constraintResults,
     rounds: plan.rounds,
-    events: plan.events,
   };
 }
 
@@ -244,7 +240,12 @@ function validate(values: FormValues): FieldErrors {
 
 function buildRequest(values: FormValues) {
   const preference = values.preferences.trim() || "没有特别偏好";
-  return `请为我规划一次${values.startDate}从${values.origin.trim()}飞往${values.destination.trim()}的${values.days}日旅行。总预算为${values.budget}元，酒店每晚不超过${values.maxHotelPrice}元，偏好是${preference}。请查询航班、酒店、景点和每天的天气，并按天输出。`;
+  const mustVisit = parseMustVisit(values.mustVisit);
+  return `请为我规划一次${values.startDate}从${values.origin.trim()}飞往${values.destination.trim()}的${values.days}日旅行。总预算为${values.budget}元，酒店每晚不超过${values.maxHotelPrice}元，偏好是${preference}。必去景点：${mustVisit.length ? mustVisit.join("、") : "无"}。请查询航班、酒店、景点和每天的天气，并按天输出。`;
+}
+
+function parseMustVisit(value: string) {
+  return value.split(/[,，、\n]/).map((item) => item.trim()).filter(Boolean);
 }
 
 function isIsoDate(value: string) {
@@ -333,9 +334,7 @@ export function App() {
         status: "COMPLETED",
         stopReason: "基础契约通过",
         problems: [],
-        constraintResults: [],
         rounds: [],
-        events: [],
       });
     }
     if (state === "error") setPlanError("模拟规划服务异常，请稍后重试");
@@ -464,6 +463,15 @@ export function App() {
                 value={form.preferences}
                 onChange={(event) => updateField("preferences", event.target.value)}
                 placeholder="饮食、节奏、兴趣点等"
+              />
+            </Field>
+
+            <Field label="必去景点">
+              <input
+                className={inputClass(false)}
+                value={form.mustVisit}
+                onChange={(event) => updateField("mustVisit", event.target.value)}
+                placeholder="例如：西湖、灵隐寺"
               />
             </Field>
 
@@ -628,7 +636,7 @@ function ProcessView({ state, result }: { state: ViewState; result: PlanResult |
     );
   }
 
-  if (!result || result.events.length === 0) {
+  if (!result || result.rounds.length === 0) {
     return (
       <div className="mt-5 border-l-2 border-dashed border-zinc-200 py-1 pl-4 text-sm leading-6 text-zinc-500">
         提交规划后显示轮次、工具、检查与反馈。
@@ -637,11 +645,24 @@ function ProcessView({ state, result }: { state: ViewState; result: PlanResult |
   }
 
   return (
-    <>
-    {result.constraintResults.length > 0 && (
-      <div className="mt-5 divide-y divide-zinc-100 border-y border-zinc-200">
-        {result.constraintResults.map((check) => (
-          <div key={check.code} className="py-3">
+    <div className="mt-5 space-y-6">
+    {result.rounds.map((round) => (
+      <section key={round.round} className="border-t border-zinc-200 pt-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold text-zinc-800">第 {round.round} 轮</span>
+          <span className={round.problems.length === 0 ? "text-[10px] font-semibold text-emerald-700" : "text-[10px] font-semibold text-orange-700"}>
+            {round.problems.length === 0 ? "验收通过" : round.problems.length + " 个问题"}
+          </span>
+        </div>
+        {round.feedbackReceived.length > 0 && <p className="mt-2 text-[11px] leading-4 text-zinc-500">收到反馈：{round.feedbackReceived.join("；")}</p>}
+        {round.problems.length > 0 && (
+          <div className="mt-2 border-l-2 border-orange-300 pl-3">
+            {round.problems.map((problem) => <p key={problem} className="text-[11px] leading-4 text-orange-700">{problem}</p>)}
+          </div>
+        )}
+        <div className="mt-3 divide-y divide-zinc-100">
+        {round.constraintResults.map((check) => (
+          <div key={round.round + "-" + check.code} className="py-2">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-semibold text-zinc-800">{check.code} · {check.name}</span>
               <span className={`text-[10px] font-semibold ${check.passed ? "text-emerald-700" : "text-red-700"}`}>
@@ -652,10 +673,9 @@ function ProcessView({ state, result }: { state: ViewState; result: PlanResult |
             {!check.passed && check.suggestions.map((item) => <p key={item} className="mt-1 text-[11px] leading-4 text-orange-700">建议：{item}</p>)}
           </div>
         ))}
-      </div>
-    )}
+        </div>
     <ol className="mt-5 space-y-4">
-      {result.events.map((event) => {
+      {round.events.map((event) => {
         const isFinal = event.type === "COMPLETED" || event.type === "MAX_ROUNDS_REACHED";
         return (
           <li key={event.sequence} className="grid grid-cols-[18px_1fr] gap-3">
@@ -674,7 +694,9 @@ function ProcessView({ state, result }: { state: ViewState; result: PlanResult |
         );
       })}
     </ol>
-    </>
+      </section>
+    ))}
+    </div>
   );
 }
 

@@ -12,8 +12,11 @@ public class TripPlanConstraintReviewer {
             BudgetConstraintCheck budget,
             TimeConflictConstraintCheck timeConflict,
             ClosedDayConstraintCheck closedDay,
-            OpeningHoursConstraintCheck openingHours) {
-        checks = List.of(budget, timeConflict, closedDay, openingHours);
+            OpeningHoursConstraintCheck openingHours,
+            RouteContinuityConstraintCheck routeContinuity,
+            MustVisitConstraintCheck mustVisit,
+            DailyPaceConstraintCheck dailyPace) {
+        checks = List.of(budget, timeConflict, closedDay, openingHours, routeContinuity, mustVisit, dailyPace);
     }
 
     public List<ConstraintCheckResult> review(PlanRequest request, TripPlan plan) {

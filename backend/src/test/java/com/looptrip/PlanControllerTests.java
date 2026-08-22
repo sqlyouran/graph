@@ -39,7 +39,7 @@ class PlanControllerTests {
     void returnsLoopResultForValidRequest() throws Exception {
         when(planningEngine.plan(any())).thenReturn(new PlanResponse(
                 TestTripPlans.complete(3), "qwen-test", 321, PlanStatus.COMPLETED, "基础契约通过", 1,
-                List.of(), List.of(), List.of(), List.of()));
+                List.of(), List.of()));
 
         mockMvc.perform(post("/api/plan/ask").contentType(MediaType.APPLICATION_JSON).content(VALID_REQUEST))
                 .andExpect(status().isOk())
@@ -49,7 +49,9 @@ class PlanControllerTests {
                 .andExpect(jsonPath("$.model").value("qwen-test"))
                 .andExpect(jsonPath("$.elapsedMs").value(321))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))
-                .andExpect(jsonPath("$.roundsUsed").value(1));
+                .andExpect(jsonPath("$.roundsUsed").value(1))
+                .andExpect(jsonPath("$.events").doesNotExist())
+                .andExpect(jsonPath("$.constraintResults").doesNotExist());
     }
 
     @Test

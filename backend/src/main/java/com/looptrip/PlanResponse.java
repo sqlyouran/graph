@@ -10,14 +10,10 @@ public record PlanResponse(
         String stopReason,
         int roundsUsed,
         List<String> problems,
-        List<ConstraintCheckResult> constraintResults,
-        List<PlanningRoundSnapshot> rounds,
-        List<PlanningEvent> events) {
+        List<PlanningRoundSnapshot> rounds) {
 
     public PlanResponse {
         problems = List.copyOf(problems);
-        constraintResults = List.copyOf(constraintResults);
         rounds = List.copyOf(rounds);
-        events = List.copyOf(events);
     }
 }

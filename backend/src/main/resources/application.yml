@@ -12,3 +12,13 @@ spring:
 
 looptrip:
   chapter: 4
+  constraints:
+    route:
+      max-cross-area-per-day: 2
+      min-transfer-minutes: 40
+    pace:
+      min-attractions-per-day: 2
+      max-attractions-per-day: 4
+      max-activity-minutes-per-day: 540
+      meal-window-start: "11:00"
+      meal-window-end: "14:00"
