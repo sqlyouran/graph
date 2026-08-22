@@ -11,63 +11,36 @@ class BasicContractReviewTests {
     private final BasicContractReview review = new BasicContractReview();
 
     @Test
-    void acceptsCommonChineseAndEnglishDayHeadings() {
-        String markdown = """
-                ## 第一天：西湖
-                游览景点，晚上入住酒店。
-
-                **第 2 天** - 运河
-                参观博物馆。
-
-                ### Day 3 · 返程
-                安排返程。
-
-                预计总花费 2000 元
-                """;
-
-        assertThat(review.review(request(), markdown).passed()).isTrue();
+    void acceptsCompleteStructuredPlanMatchingRequest() {
+        assertThat(review.review(request(), TestTripPlans.complete(3)).passed()).isTrue();
     }
 
     @Test
-    void acceptsDayHeadingsWithIconsAndUnrestrictedPunctuation() {
-        String markdown = """
-                ### 🗓️ Day 1（10月1日）
-                游览景点，晚上入住酒店。
-                ### 行程｜Day 2【西湖】
-                参观博物馆。
-                ### **DAY3 / 返程**
-                安排返程。
-                预计总花费 2000 元
-                """;
-
-        assertThat(review.review(request(), markdown).passed()).isTrue();
+    void reportsMissingCalendarDay() {
+        assertThat(review.review(request(), TestTripPlans.missingLastDay()).problems())
+                .containsExactly("缺少第 3 天安排");
     }
 
     @Test
-    void reportsOnlyTheActuallyMissingDay() {
-        String markdown = """
-                ### 第1天
-                游览景点并入住酒店。
-                ### 第三日
-                返程。
-                预计总花费 1800 元
-                """;
+    void reportsRequestIdentityMismatches() {
+        TripPlan source = TestTripPlans.complete(3);
+        TripPlan mismatched = new TripPlan("南京", "苏州", LocalDate.of(2026, 10, 2), 2,
+                source.outboundFlight(), source.returnFlight(), source.dailyPlans());
 
-        assertThat(review.review(request(), markdown).problems())
-                .containsExactly("缺少第 2 天安排");
+        assertThat(review.review(request(), mismatched).problems())
+                .contains("行程出发地与原请求不一致", "行程目的地与原请求不一致",
+                        "行程开始日期与原请求不一致", "行程天数与原请求不一致");
     }
 
     @Test
-    void doesNotTreatDayTenAsDayOne() {
-        String markdown = """
-                ## Day 10
-                游览景点并入住酒店。
-                预计总花费 1000 元
-                """;
-        PlanRequest oneDay = new PlanRequest(
-                "上海", "杭州", LocalDate.of(2026, 10, 1), 1, 3000, 700, "轻松", 2);
+    void reportsMissingHotelAndActivities() {
+        TripPlan empty = TestTripPlans.plan(3, java.util.List.of(
+                new TripDayPlan(LocalDate.of(2026, 10, 1), null, java.util.List.of()),
+                new TripDayPlan(LocalDate.of(2026, 10, 2), null, java.util.List.of()),
+                new TripDayPlan(LocalDate.of(2026, 10, 3), null, java.util.List.of())));
 
-        assertThat(review.review(oneDay, markdown).problems()).contains("缺少第 1 天安排");
+        assertThat(review.review(request(), empty).problems())
+                .containsExactly("缺少住宿安排", "缺少景点或活动安排");
     }
 
     private PlanRequest request() {

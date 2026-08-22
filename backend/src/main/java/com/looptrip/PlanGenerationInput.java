@@ -5,7 +5,7 @@ import java.util.List;
 public record PlanGenerationInput(
         PlanRequest originalRequest,
         int round,
-        String previousMarkdown,
+        TripPlan previousPlan,
         List<String> feedbackProblems) {
 
     public PlanGenerationInput {

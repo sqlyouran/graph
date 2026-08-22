@@ -12,14 +12,17 @@ public class TravelPlanningEngine {
 
     private final PlanGenerator planGenerator;
     private final BasicContractReview contractReview;
+    private final TripPlanConstraintReviewer constraintReviewer;
     private final PlanningEventSink eventSink;
 
     public TravelPlanningEngine(
             PlanGenerator planGenerator,
             BasicContractReview contractReview,
+            TripPlanConstraintReviewer constraintReviewer,
             PlanningEventSink eventSink) {
         this.planGenerator = planGenerator;
         this.contractReview = contractReview;
+        this.constraintReviewer = constraintReviewer;
         this.eventSink = eventSink;
     }
 
@@ -32,7 +35,7 @@ public class TravelPlanningEngine {
     private PlanResponse runLoop(PlanRequest request, List<PlanningEvent> events) {
         List<PlanningRoundSnapshot> rounds = new ArrayList<>();
         List<String> feedback = List.of();
-        String previousMarkdown = null;
+        TripPlan previousPlan = null;
         PlanningRoundSnapshot bestRound = null;
         long totalElapsedMs = 0;
 
@@ -44,7 +47,7 @@ public class TravelPlanningEngine {
             PlanGenerationResult generated = planGenerator.generate(new PlanGenerationInput(
                     request,
                     round,
-                    previousMarkdown,
+                    previousPlan,
                     feedback));
             totalElapsedMs += generated.elapsedMs();
             emit(
@@ -52,11 +55,27 @@ public class TravelPlanningEngine {
                     "第 " + round + " 轮候选生成完成",
                     Map.of("elapsedMs", generated.elapsedMs(), "model", generated.model()));
 
-            BasicContractReviewResult review = contractReview.review(request, generated.markdown());
+            List<String> problems = new ArrayList<>(generated.problems());
+            List<ConstraintCheckResult> constraintResults = List.of();
+            if (generated.plan() != null) {
+                problems.addAll(contractReview.review(request, generated.plan()).problems());
+                constraintResults = constraintReviewer.review(request, generated.plan());
+                for (ConstraintCheckResult result : constraintResults) {
+                    if (!result.passed()) {
+                        for (String suggestion : result.suggestions()) {
+                            problems.add(result.code() + " " + result.name() + "：" + suggestion);
+                        }
+                    }
+                }
+            } else if (problems.isEmpty()) {
+                problems.add("缺少可检查的结构化行程");
+            }
+            BasicContractReviewResult review = new BasicContractReviewResult(problems.isEmpty(), problems);
             emit(
                     PlanningEventType.REVIEW_COMPLETED,
                     review.passed() ? "基础契约通过" : "基础契约发现 " + review.problems().size() + " 个问题",
-                    Map.of("passed", review.passed(), "problems", review.problems()));
+                    Map.of("passed", review.passed(), "problems", review.problems(),
+                            "constraintResults", constraintResults));
 
             if (review.passed()) {
                 emit(PlanningEventType.COMPLETED, "基础契约通过，规划完成", Map.of());
@@ -75,10 +94,11 @@ public class TravelPlanningEngine {
             PlanningRoundSnapshot snapshot = new PlanningRoundSnapshot(
                     round,
                     request,
-                    generated.markdown(),
+                    generated.plan(),
                     generated.model(),
                     generated.elapsedMs(),
                     review,
+                    constraintResults,
                     feedback,
                     List.copyOf(events.subList(firstEventIndex, events.size())));
             rounds.add(snapshot);
@@ -98,7 +118,7 @@ public class TravelPlanningEngine {
                         events);
             }
 
-            previousMarkdown = generated.markdown();
+            previousPlan = generated.plan();
             feedback = review.problems();
         }
 
@@ -119,13 +139,14 @@ public class TravelPlanningEngine {
             List<PlanningRoundSnapshot> rounds,
             List<PlanningEvent> events) {
         return new PlanResponse(
-                bestRound.markdown(),
+                bestRound.plan(),
                 bestRound.model(),
                 elapsedMs,
                 status,
                 stopReason,
                 rounds.size(),
                 bestRound.review().problems(),
+                bestRound.constraintResults(),
                 rounds,
                 events);
     }

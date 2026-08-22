@@ -64,6 +64,7 @@ type PlanResult = {
   status: "COMPLETED" | "MAX_ROUNDS";
   stopReason: string;
   problems: string[];
+  constraintResults: ConstraintCheckResult[];
   rounds: PlanningRound[];
   events: PlanningEvent[];
 };
@@ -78,21 +79,63 @@ type PlanningEvent = {
 
 type PlanningRound = {
   round: number;
-  markdown: string;
+  plan: TripPlan | null;
   review: { passed: boolean; problems: string[] };
   feedbackReceived: string[];
   events: PlanningEvent[];
 };
 
+type ConstraintCheckResult = {
+  code: string;
+  name: string;
+  severity: "HARD" | "SOFT";
+  passed: boolean;
+  evidence: string[];
+  suggestions: string[];
+};
+
 type PlanResponse = {
-  answer: string;
+  plan: TripPlan | null;
   model: string;
   elapsedMs: number;
   status: "COMPLETED" | "MAX_ROUNDS";
   stopReason: string;
   problems: string[];
+  constraintResults: ConstraintCheckResult[];
   rounds: PlanningRound[];
   events: PlanningEvent[];
+};
+
+type TripFlight = {
+  flightNumber: string;
+  origin: string;
+  destination: string;
+  departureTime: string;
+  arrivalTime: string;
+  price: number | null;
+};
+
+type TripActivity = {
+  name: string;
+  type: string;
+  startTime: string;
+  endTime: string;
+  area: string;
+  price: number | null;
+};
+
+type TripPlan = {
+  origin: string;
+  destination: string;
+  startDate: string;
+  days: number;
+  outboundFlight: TripFlight | null;
+  returnFlight: TripFlight | null;
+  dailyPlans: Array<{
+    date: string;
+    hotel: { name: string; area: string; pricePerNight: number | null } | null;
+    activities: TripActivity[];
+  }>;
 };
 
 type ApiErrorResponse = {
@@ -121,6 +164,7 @@ async function requestPlan(values: FormValues): Promise<PlanResult> {
       status: "COMPLETED",
       stopReason: "基础契约通过",
       problems: [],
+      constraintResults: [],
       rounds: [],
       events: [],
     };
@@ -149,15 +193,36 @@ async function requestPlan(values: FormValues): Promise<PlanResult> {
 
   const plan = payload as PlanResponse;
   return {
-    markdown: plan.answer,
+    markdown: plan.plan ? tripPlanToMarkdown(plan.plan) : "本轮未能生成可解析的结构化行程。",
     model: plan.model,
     durationMs: plan.elapsedMs,
     status: plan.status,
     stopReason: plan.stopReason,
     problems: plan.problems,
+    constraintResults: plan.constraintResults,
     rounds: plan.rounds,
     events: plan.events,
   };
+}
+
+function tripPlanToMarkdown(plan: TripPlan) {
+  const flightLine = (label: string, flight: TripFlight | null) => flight
+    ? `- **${label}**：${flight.flightNumber}，${formatDateTime(flight.departureTime)} 从${flight.origin}出发，${formatDateTime(flight.arrivalTime)}抵达${flight.destination}${flight.price == null ? "" : `，${flight.price} 元`}`
+    : `- **${label}**：暂无数据`;
+  const days = plan.dailyPlans.map((day, index) => {
+    const hotel = day.hotel
+      ? `- **酒店**：${day.hotel.name}（${day.hotel.area}${day.hotel.pricePerNight == null ? "" : `，${day.hotel.pricePerNight} 元/晚`}）`
+      : "- **酒店**：暂无数据";
+    const activities = day.activities.length > 0
+      ? day.activities.map((activity) => `- **${activity.startTime}-${activity.endTime} · ${activity.type}**：${activity.name}（${activity.area}${activity.price == null ? "" : `，${activity.price} 元`}）`).join("\n")
+      : "- **活动**：暂无数据";
+    return `### 第 ${index + 1} 天 · ${day.date}\n\n${hotel}\n${activities}`;
+  }).join("\n\n");
+  return `## ${plan.origin}至${plan.destination} ${plan.days} 日行程\n\n### 往返航班\n\n${flightLine("去程", plan.outboundFlight)}\n${flightLine("返程", plan.returnFlight)}\n\n${days}`;
+}
+
+function formatDateTime(value: string) {
+  return value ? value.replace("T", " ") : "时间暂无数据";
 }
 
 function validate(values: FormValues): FieldErrors {
@@ -268,6 +333,7 @@ export function App() {
         status: "COMPLETED",
         stopReason: "基础契约通过",
         problems: [],
+        constraintResults: [],
         rounds: [],
         events: [],
       });
@@ -571,6 +637,23 @@ function ProcessView({ state, result }: { state: ViewState; result: PlanResult |
   }
 
   return (
+    <>
+    {result.constraintResults.length > 0 && (
+      <div className="mt-5 divide-y divide-zinc-100 border-y border-zinc-200">
+        {result.constraintResults.map((check) => (
+          <div key={check.code} className="py-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-zinc-800">{check.code} · {check.name}</span>
+              <span className={`text-[10px] font-semibold ${check.passed ? "text-emerald-700" : "text-red-700"}`}>
+                {check.severity} · {check.passed ? "通过" : "未通过"}
+              </span>
+            </div>
+            {check.evidence.map((item) => <p key={item} className="mt-1 text-[11px] leading-4 text-zinc-500">{item}</p>)}
+            {!check.passed && check.suggestions.map((item) => <p key={item} className="mt-1 text-[11px] leading-4 text-orange-700">建议：{item}</p>)}
+          </div>
+        ))}
+      </div>
+    )}
     <ol className="mt-5 space-y-4">
       {result.events.map((event) => {
         const isFinal = event.type === "COMPLETED" || event.type === "MAX_ROUNDS_REACHED";
@@ -591,6 +674,7 @@ function ProcessView({ state, result }: { state: ViewState; result: PlanResult |
         );
       })}
     </ol>
+    </>
   );
 }
 

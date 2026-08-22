@@ -13,6 +13,26 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TravelPlanningEngineTests {
 
     @Test
+    void structuredParseProblemEntersFeedbackLoop() {
+        List<PlanGenerationInput> inputs = new java.util.ArrayList<>();
+        PlanGenerator generator = input -> {
+            inputs.add(input);
+            if (input.round() == 1) {
+                return new PlanGenerationResult(null, "scripted", 1, List.of(PlanChatService.PARSE_FAILURE));
+            }
+            return PlanGenerationResult.success(TestTripPlans.complete(3), "scripted", 1);
+        };
+
+        PlanResponse result = engine(generator, new InMemoryPlanningEventSink()).plan(request(2));
+
+        assertThat(result.status()).isEqualTo(PlanStatus.COMPLETED);
+        assertThat(inputs).hasSize(2);
+        assertThat(inputs.get(1).feedbackProblems()).containsExactly(PlanChatService.PARSE_FAILURE);
+        assertThat(result.rounds().get(0).plan()).isNull();
+        assertThat(result.rounds().get(1).plan()).isNotNull();
+    }
+
+    @Test
     void rejectsInvalidRoundLimitBeforeGeneration() {
         PlanGenerator generator = input -> {
             throw new AssertionError("generator must not be called");
@@ -36,11 +56,7 @@ class TravelPlanningEngineTests {
 
     @Test
     void eventFailuresDoNotInterruptPlanning() {
-        PlanGenerator generator = input -> new PlanGenerationResult("""
-                ## 第 1 天
-                参观景点并入住酒店。
-                预计总花费 1000 元
-                """, "scripted", 1);
+        PlanGenerator generator = input -> PlanGenerationResult.success(TestTripPlans.complete(1), "scripted", 1);
         PlanningEventSink failingSink = new PlanningEventSink() {
             @Override
             public <T> T capture(List<PlanningEvent> events, Supplier<T> action) {
@@ -66,7 +82,7 @@ class TravelPlanningEngineTests {
     }
 
     private TravelPlanningEngine engine(PlanGenerator generator, PlanningEventSink sink) {
-        return new TravelPlanningEngine(generator, new BasicContractReview(), sink);
+        return new TravelPlanningEngine(generator, new BasicContractReview(), TestTripPlans.constraintReviewer(), sink);
     }
 
     private PlanRequest request(int maxRounds) {

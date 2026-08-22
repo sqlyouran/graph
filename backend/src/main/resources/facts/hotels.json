@@ -14,10 +14,59 @@
     "rating": 4.5
   },
   {
+    "name": "西溪课程度假酒店",
+    "city": "杭州",
+    "area": "西溪",
+    "pricePerNight": 760,
+    "rating": 4.8
+  },
+  {
+    "name": "武林课程商务酒店",
+    "city": "杭州",
+    "area": "武林广场",
+    "pricePerNight": 560,
+    "rating": 4.4
+  },
+  {
+    "name": "龙井课程民宿",
+    "city": "杭州",
+    "area": "龙井村",
+    "pricePerNight": 620,
+    "rating": 4.6
+  },
+  {
+    "name": "钱江课程酒店",
+    "city": "杭州",
+    "area": "钱江新城",
+    "pricePerNight": 920,
+    "rating": 4.9
+  },
+  {
     "name": "外滩课程酒店",
     "city": "上海",
     "area": "外滩",
     "pricePerNight": 880,
     "rating": 4.6
+  },
+  {
+    "name": "陆家嘴课程酒店",
+    "city": "上海",
+    "area": "陆家嘴",
+    "pricePerNight": 980,
+    "rating": 4.8
+  },
+  {
+    "name": "静安课程精品酒店",
+    "city": "上海",
+    "area": "静安寺",
+    "pricePerNight": 720,
+    "rating": 4.7
+  },
+  {
+    "name": "虹桥课程商务酒店",
+    "city": "上海",
+    "area": "虹桥",
+    "pricePerNight": 520,
+    "rating": 4.3
   }
 ]

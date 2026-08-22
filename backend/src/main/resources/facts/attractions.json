@@ -20,6 +20,66 @@
     "recommendedDurationMinutes": 180
   },
   {
+    "name": "灵隐飞来峰景区",
+    "city": "杭州",
+    "area": "西湖区",
+    "ticketPrice": 45,
+    "openTime": "06:30:00",
+    "closeTime": "17:30:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 180
+  },
+  {
+    "name": "雷峰塔景区",
+    "city": "杭州",
+    "area": "西湖区",
+    "ticketPrice": 40,
+    "openTime": "08:00:00",
+    "closeTime": "19:00:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 90
+  },
+  {
+    "name": "西溪国家湿地公园",
+    "city": "杭州",
+    "area": "西湖区",
+    "ticketPrice": 80,
+    "openTime": "08:00:00",
+    "closeTime": "17:30:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 300
+  },
+  {
+    "name": "良渚博物院",
+    "city": "杭州",
+    "area": "余杭区",
+    "ticketPrice": 0,
+    "openTime": "09:00:00",
+    "closeTime": "17:00:00",
+    "closedDays": ["MONDAY"],
+    "recommendedDurationMinutes": 150
+  },
+  {
+    "name": "杭州工艺美术博物馆",
+    "city": "杭州",
+    "area": "拱墅区",
+    "ticketPrice": 0,
+    "openTime": "09:00:00",
+    "closeTime": "16:30:00",
+    "closedDays": ["TUESDAY"],
+    "recommendedDurationMinutes": 120
+  },
+  {
+    "name": "胡雪岩故居",
+    "city": "杭州",
+    "area": "上城区",
+    "ticketPrice": 20,
+    "openTime": "08:30:00",
+    "closeTime": "17:00:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 90
+  },
+  {
     "name": "上海博物馆东馆",
     "city": "上海",
     "area": "浦东新区",
@@ -28,5 +88,55 @@
     "closeTime": "18:00:00",
     "closedDays": ["TUESDAY"],
     "recommendedDurationMinutes": 180
+  },
+  {
+    "name": "上海科技馆",
+    "city": "上海",
+    "area": "浦东新区",
+    "ticketPrice": 45,
+    "openTime": "09:00:00",
+    "closeTime": "17:00:00",
+    "closedDays": ["MONDAY"],
+    "recommendedDurationMinutes": 240
+  },
+  {
+    "name": "豫园",
+    "city": "上海",
+    "area": "黄浦区",
+    "ticketPrice": 40,
+    "openTime": "09:00:00",
+    "closeTime": "16:30:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 120
+  },
+  {
+    "name": "东方明珠广播电视塔",
+    "city": "上海",
+    "area": "浦东新区",
+    "ticketPrice": 199,
+    "openTime": "09:00:00",
+    "closeTime": "21:00:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 150
+  },
+  {
+    "name": "上海自然博物馆",
+    "city": "上海",
+    "area": "静安区",
+    "ticketPrice": 30,
+    "openTime": "09:00:00",
+    "closeTime": "17:00:00",
+    "closedDays": ["MONDAY"],
+    "recommendedDurationMinutes": 210
+  },
+  {
+    "name": "朱家角古镇",
+    "city": "上海",
+    "area": "青浦区",
+    "ticketPrice": 0,
+    "openTime": "08:30:00",
+    "closeTime": "16:30:00",
+    "closedDays": [],
+    "recommendedDurationMinutes": 240
   }
 ]

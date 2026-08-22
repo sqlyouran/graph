@@ -2,7 +2,7 @@ package com.looptrip;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Pattern;
+import java.util.Objects;
 
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -10,38 +10,41 @@ import org.springframework.util.StringUtils;
 @Component
 public class BasicContractReview {
 
-    private static final List<String> CHINESE_DAY_NUMBERS = List.of("", "一", "二", "三", "四", "五", "六", "七");
-    private static final Pattern ACCOMMODATION = Pattern.compile("住宿|酒店|入住");
-    private static final Pattern ATTRACTION = Pattern.compile("景点|游览|参观");
-    private static final Pattern TOTAL_COST = Pattern.compile(
-            "预计总花费\\s+\\d+(?:\\.\\d{1,2})?\\s+元\\s*$");
-
-    public BasicContractReviewResult review(PlanRequest request, String markdown) {
+    public BasicContractReviewResult review(PlanRequest request, TripPlan plan) {
         List<String> problems = new ArrayList<>();
-        String content = StringUtils.hasText(markdown) ? markdown : "";
+        if (plan == null) {
+            return new BasicContractReviewResult(false, List.of("缺少可检查的结构化行程"));
+        }
 
+        if (!sameText(request.origin(), plan.origin())) problems.add("行程出发地与原请求不一致");
+        if (!sameText(request.destination(), plan.destination())) problems.add("行程目的地与原请求不一致");
+        if (!Objects.equals(request.startDate(), plan.startDate())) problems.add("行程开始日期与原请求不一致");
+        if (request.days() != plan.days()) problems.add("行程天数与原请求不一致");
+
+        List<TripDayPlan> dailyPlans = plan.dailyPlans();
+        if (dailyPlans.size() > request.days()) problems.add("每日计划包含请求日期范围外的安排");
         for (int day = 1; day <= request.days(); day++) {
-            Pattern dayHeading = dayHeadingPattern(day);
-            if (!dayHeading.matcher(content).find()) {
+            var expectedDate = request.startDate().plusDays(day - 1L);
+            if (dailyPlans.stream().noneMatch(item -> expectedDate.equals(item.date()))) {
                 problems.add("缺少第 " + day + " 天安排");
             }
         }
-        if (!ACCOMMODATION.matcher(content).find()) {
+        long distinctDates = dailyPlans.stream().map(TripDayPlan::date).filter(Objects::nonNull).distinct().count();
+        if (distinctDates < dailyPlans.size()) problems.add("每日计划包含重复日期");
+        if (dailyPlans.stream().noneMatch(item -> item.hotel() != null
+                && StringUtils.hasText(item.hotel().name()))) {
             problems.add("缺少住宿安排");
         }
-        if (!ATTRACTION.matcher(content).find()) {
-            problems.add("缺少景点安排");
-        }
-        if (!TOTAL_COST.matcher(content).find()) {
-            problems.add("末尾缺少固定格式“预计总花费 XXXX 元”");
+        if (dailyPlans.stream().flatMap(item -> item.activities().stream())
+                .noneMatch(activity -> StringUtils.hasText(activity.name()))) {
+            problems.add("缺少景点或活动安排");
         }
         return new BasicContractReviewResult(problems.isEmpty(), problems);
     }
 
-    private Pattern dayHeadingPattern(int day) {
-        String number = "(?:" + day + "|" + CHINESE_DAY_NUMBERS.get(day) + ")";
-        return Pattern.compile(
-                "^.*(?:第\\s*" + number + "\\s*(?:天|日)|(?<![A-Za-z])day\\s*" + day + "(?!\\d)).*$",
-                Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
+    private boolean sameText(String expected, String actual) {
+        return StringUtils.hasText(expected)
+                && StringUtils.hasText(actual)
+                && expected.trim().equals(actual.trim());
     }
 }

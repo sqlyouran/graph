@@ -29,7 +29,7 @@ class Chapter4FeedbackReplayTest {
         assertThat(result.rounds().get(0).review().problems()).contains("缺少第 3 天安排");
         assertThat(result.rounds().get(1).feedbackReceived()).containsExactly("缺少第 3 天安排");
         assertThat(policy.inputs().get(1).originalRequest()).isEqualTo(request(3));
-        assertThat(policy.inputs().get(1).previousMarkdown()).isEqualTo(result.rounds().get(0).markdown());
+        assertThat(policy.inputs().get(1).previousPlan()).isEqualTo(result.rounds().get(0).plan());
         assertThat(policy.secondRoundReceivedFeedback()).isTrue();
         assertThat(result.rounds().get(1).review().passed()).isTrue();
         print(result, policy);
@@ -57,13 +57,14 @@ class Chapter4FeedbackReplayTest {
         assertThat(result.status()).isEqualTo(PlanStatus.MAX_ROUNDS);
         assertThat(result.roundsUsed()).isEqualTo(1);
         assertThat(policy.inputs()).hasSize(1);
-        assertThat(result.answer()).isEqualTo(result.rounds().get(0).markdown());
+        assertThat(result.plan()).isEqualTo(result.rounds().get(0).plan());
         assertThat(result.problems()).contains("缺少第 3 天安排");
         print(result, policy);
     }
 
     private TravelPlanningEngine engine(PlanGenerator generator) {
-        return new TravelPlanningEngine(generator, new BasicContractReview(), new InMemoryPlanningEventSink());
+        return new TravelPlanningEngine(generator, new BasicContractReview(), TestTripPlans.constraintReviewer(),
+                new InMemoryPlanningEventSink());
     }
 
     private Chapter4ScriptedPlanningPolicy policy(Chapter4ScriptedPlanningPolicy.Scenario scenario) {

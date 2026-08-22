@@ -24,11 +24,91 @@
     "precipitationProbability": 35
   },
   {
+    "city": "杭州",
+    "date": "2026-10-04",
+    "weather": "晴",
+    "minTemperature": 18,
+    "maxTemperature": 27,
+    "precipitationProbability": 10
+  },
+  {
+    "city": "杭州",
+    "date": "2026-10-05",
+    "weather": "多云",
+    "minTemperature": 19,
+    "maxTemperature": 26,
+    "precipitationProbability": 25
+  },
+  {
+    "city": "杭州",
+    "date": "2026-10-06",
+    "weather": "中雨",
+    "minTemperature": 17,
+    "maxTemperature": 22,
+    "precipitationProbability": 85
+  },
+  {
+    "city": "杭州",
+    "date": "2026-10-07",
+    "weather": "小雨转阴",
+    "minTemperature": 16,
+    "maxTemperature": 23,
+    "precipitationProbability": 60
+  },
+  {
     "city": "上海",
     "date": "2026-10-01",
     "weather": "晴",
     "minTemperature": 21,
     "maxTemperature": 28,
     "precipitationProbability": 10
+  },
+  {
+    "city": "上海",
+    "date": "2026-10-02",
+    "weather": "多云",
+    "minTemperature": 21,
+    "maxTemperature": 27,
+    "precipitationProbability": 20
+  },
+  {
+    "city": "上海",
+    "date": "2026-10-03",
+    "weather": "阵雨",
+    "minTemperature": 20,
+    "maxTemperature": 25,
+    "precipitationProbability": 65
+  },
+  {
+    "city": "上海",
+    "date": "2026-10-04",
+    "weather": "阴",
+    "minTemperature": 19,
+    "maxTemperature": 25,
+    "precipitationProbability": 35
+  },
+  {
+    "city": "上海",
+    "date": "2026-10-05",
+    "weather": "晴",
+    "minTemperature": 19,
+    "maxTemperature": 27,
+    "precipitationProbability": 10
+  },
+  {
+    "city": "上海",
+    "date": "2026-10-06",
+    "weather": "小雨",
+    "minTemperature": 18,
+    "maxTemperature": 23,
+    "precipitationProbability": 75
+  },
+  {
+    "city": "上海",
+    "date": "2026-10-07",
+    "weather": "多云",
+    "minTemperature": 18,
+    "maxTemperature": 24,
+    "precipitationProbability": 25
   }
 ]

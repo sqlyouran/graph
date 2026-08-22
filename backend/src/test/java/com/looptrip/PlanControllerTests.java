@@ -38,12 +38,14 @@ class PlanControllerTests {
     @Test
     void returnsLoopResultForValidRequest() throws Exception {
         when(planningEngine.plan(any())).thenReturn(new PlanResponse(
-                "## 行程", "qwen-test", 321, PlanStatus.COMPLETED, "基础契约通过", 1,
-                List.of(), List.of(), List.of()));
+                TestTripPlans.complete(3), "qwen-test", 321, PlanStatus.COMPLETED, "基础契约通过", 1,
+                List.of(), List.of(), List.of(), List.of()));
 
         mockMvc.perform(post("/api/plan/ask").contentType(MediaType.APPLICATION_JSON).content(VALID_REQUEST))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.answer").value("## 行程"))
+                .andExpect(jsonPath("$.plan.destination").value("杭州"))
+                .andExpect(jsonPath("$.plan.dailyPlans.length()").value(3))
+                .andExpect(jsonPath("$.plan.totalCost").doesNotExist())
                 .andExpect(jsonPath("$.model").value("qwen-test"))
                 .andExpect(jsonPath("$.elapsedMs").value(321))
                 .andExpect(jsonPath("$.status").value("COMPLETED"))

@@ -16,11 +16,51 @@
     "price": 460
   },
   {
+    "flightNumber": "FM9301",
+    "origin": "上海",
+    "destination": "杭州",
+    "departureTime": "2026-10-01T06:45:00",
+    "arrivalTime": "2026-10-01T07:50:00",
+    "price": 390
+  },
+  {
+    "flightNumber": "CA1788",
+    "origin": "上海",
+    "destination": "杭州",
+    "departureTime": "2026-10-01T18:30:00",
+    "arrivalTime": "2026-10-01T19:35:00",
+    "price": 610
+  },
+  {
     "flightNumber": "MU5212",
     "origin": "杭州",
     "destination": "上海",
     "departureTime": "2026-10-03T19:10:00",
     "arrivalTime": "2026-10-03T20:20:00",
     "price": 560
+  },
+  {
+    "flightNumber": "FM9302",
+    "origin": "杭州",
+    "destination": "上海",
+    "departureTime": "2026-10-03T08:00:00",
+    "arrivalTime": "2026-10-03T09:10:00",
+    "price": 420
+  },
+  {
+    "flightNumber": "HO1124",
+    "origin": "杭州",
+    "destination": "上海",
+    "departureTime": "2026-10-03T14:40:00",
+    "arrivalTime": "2026-10-03T15:50:00",
+    "price": 480
+  },
+  {
+    "flightNumber": "CA1789",
+    "origin": "杭州",
+    "destination": "上海",
+    "departureTime": "2026-10-03T21:00:00",
+    "arrivalTime": "2026-10-03T22:10:00",
+    "price": 650
   }
 ]

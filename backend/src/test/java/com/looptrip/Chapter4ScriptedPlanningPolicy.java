@@ -12,24 +12,6 @@ final class Chapter4ScriptedPlanningPolicy implements PlanGenerator {
         MAX_ROUNDS
     }
 
-    private static final String COMPLETE = """
-            ## 第 1 天
-            参观景点，晚上入住酒店。
-            ## 第 2 天
-            游览景点并继续住宿。
-            ## 第 3 天
-            参观景点后返程。
-            预计总花费 2000 元
-            """;
-
-    private static final String MISSING_DAY_THREE = """
-            ## 第 1 天
-            参观景点，晚上入住酒店。
-            ## 第 2 天
-            游览景点并继续住宿。
-            预计总花费 1800 元
-            """;
-
     private final Scenario scenario;
     private final List<PlanGenerationInput> inputs = new ArrayList<>();
     private boolean secondRoundReceivedFeedback;
@@ -46,12 +28,12 @@ final class Chapter4ScriptedPlanningPolicy implements PlanGenerator {
                     && input.feedbackProblems().contains("缺少第 3 天安排");
         }
 
-        String markdown = switch (scenario) {
-            case SUCCESS -> COMPLETE;
-            case FEEDBACK -> input.round() == 1 ? MISSING_DAY_THREE : COMPLETE;
-            case NO_FEEDBACK, MAX_ROUNDS -> MISSING_DAY_THREE;
+        TripPlan plan = switch (scenario) {
+            case SUCCESS -> TestTripPlans.complete(3);
+            case FEEDBACK -> input.round() == 1 ? TestTripPlans.missingLastDay() : TestTripPlans.complete(3);
+            case NO_FEEDBACK, MAX_ROUNDS -> TestTripPlans.missingLastDay();
         };
-        return new PlanGenerationResult(markdown, "scripted", 1);
+        return PlanGenerationResult.success(plan, "scripted", 1);
     }
 
     List<PlanGenerationInput> inputs() {

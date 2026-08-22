@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Consumer;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -104,6 +105,24 @@ public class TravelDataService {
                 .filter(item -> item.city().equals(normalizedDestination))
                 .filter(item -> item.date().equals(parsedDate))
                 .toList();
+    }
+
+    public Optional<FlightFact> findFlightByNumber(String flightNumber) {
+        if (!StringUtils.hasText(flightNumber)) return Optional.empty();
+        String expected = flightNumber.trim();
+        return flights.stream().filter(item -> item.flightNumber().equals(expected)).findFirst();
+    }
+
+    public Optional<HotelFact> findHotelByName(String name) {
+        if (!StringUtils.hasText(name)) return Optional.empty();
+        String expected = name.trim();
+        return hotels.stream().filter(item -> item.name().equals(expected)).findFirst();
+    }
+
+    public Optional<AttractionFact> findAttractionByName(String name) {
+        if (!StringUtils.hasText(name)) return Optional.empty();
+        String expected = name.trim();
+        return attractions.stream().filter(item -> item.name().equals(expected)).findFirst();
     }
 
     private <T> List<T> readAndValidate(

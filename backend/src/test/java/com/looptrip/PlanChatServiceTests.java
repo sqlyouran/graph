@@ -12,7 +12,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.chat.client.ChatClient;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
@@ -36,11 +35,13 @@ class PlanChatServiceTests {
 
     @Test
     void generatesOneCandidateWithModelAndElapsedTime() {
-        stubResponse("## 第 1 天\n参观景点并入住酒店。\n\n预计总花费 1000 元");
+        TripPlan plan = TestTripPlans.complete(3);
+        stubResponse(plan);
 
         PlanGenerationResult response = service.generate(new PlanGenerationInput(request(), 1, null, List.of()));
 
-        assertThat(response.markdown()).contains("第 1 天");
+        assertThat(response.plan()).isEqualTo(plan);
+        assertThat(response.problems()).isEmpty();
         assertThat(response.model()).isEqualTo("qwen-test");
         assertThat(response.elapsedMs()).isGreaterThanOrEqualTo(0);
     }
@@ -52,17 +53,17 @@ class PlanChatServiceTests {
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(userPrompt.capture())).thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
-        when(responseSpec.content()).thenReturn("完整修订版");
+        when(responseSpec.entity(TripPlan.class)).thenReturn(TestTripPlans.complete(3));
 
         service.generate(new PlanGenerationInput(
                 request(),
                 2,
-                "上一版完整 Markdown",
+                TestTripPlans.missingLastDay(),
                 List.of("缺少第 3 天安排", "缺少住宿安排")));
 
         assertThat(userPrompt.getValue())
                 .contains("【原始需求】", "从上海出发，前往杭州")
-                .contains("【上一版完整行程】", "上一版完整 Markdown")
+                .contains("【上一版完整 TripPlan】", "\"destination\":\"杭州\"")
                 .contains("【上一轮全部问题】", "缺少第 3 天安排", "缺少住宿安排")
                 .contains("【修订要求】", "保留已合格部分", "完整修订版");
     }
@@ -73,32 +74,38 @@ class PlanChatServiceTests {
                 .contains("必须来自对应工具")
                 .contains("该城市/日期暂无数据")
                 .contains("不得用常识")
-                .contains("预计总花费 XXXX 元");
+                .contains("不要计算或返回总花费");
     }
 
     @Test
-    void treatsBlankModelContentAsModelFailure() {
-        stubResponse("  ");
-        assertThatThrownBy(() -> service.generate(new PlanGenerationInput(request(), 1, null, List.of())))
-                .isInstanceOf(ModelCallException.class)
-                .hasMessage("模型返回了空回答");
+    void returnsRoundProblemWhenStructuredParsingFails() {
+        when(chatClient.prompt()).thenReturn(requestSpec);
+        when(requestSpec.system(anyString())).thenReturn(requestSpec);
+        when(requestSpec.user(anyString())).thenReturn(requestSpec);
+        when(requestSpec.call()).thenReturn(responseSpec);
+        when(responseSpec.entity(TripPlan.class)).thenThrow(new IllegalArgumentException("invalid json"));
+
+        PlanGenerationResult result = service.generate(new PlanGenerationInput(request(), 1, null, List.of()));
+
+        assertThat(result.plan()).isNull();
+        assertThat(result.problems()).containsExactly(PlanChatService.PARSE_FAILURE);
     }
 
     @Test
     void wrapsModelCallFailureWithoutFallback() {
         when(chatClient.prompt()).thenThrow(new IllegalStateException("upstream unavailable"));
-        assertThatThrownBy(() -> service.generate(new PlanGenerationInput(request(), 1, null, List.of())))
-                .isInstanceOf(ModelCallException.class)
-                .hasMessage("模型调用失败，请稍后重试")
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> service.generate(new PlanGenerationInput(request(), 1, null, List.of())))
+                .isInstanceOf(ModelCallException.class).hasMessage("模型调用失败，请稍后重试")
                 .hasCauseInstanceOf(IllegalStateException.class);
     }
 
-    private void stubResponse(String content) {
+    private void stubResponse(TripPlan plan) {
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
         when(requestSpec.user(anyString())).thenReturn(requestSpec);
         when(requestSpec.call()).thenReturn(responseSpec);
-        when(responseSpec.content()).thenReturn(content);
+        when(responseSpec.entity(TripPlan.class)).thenReturn(plan);
     }
 
     private PlanRequest request() {
