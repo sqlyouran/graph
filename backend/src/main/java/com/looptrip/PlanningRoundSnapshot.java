@@ -11,7 +11,9 @@ public record PlanningRoundSnapshot(
         List<String> problems,
         List<ConstraintCheckResult> constraintResults,
         List<String> feedbackReceived,
-        List<PlanningEvent> events) {
+        List<PlanningEvent> events,
+        long estimatedTokens,
+        String hardFailureFingerprint) {
 
     public PlanningRoundSnapshot {
         problems = List.copyOf(problems);
@@ -22,5 +24,12 @@ public record PlanningRoundSnapshot(
 
     public boolean passed() {
         return problems.isEmpty();
+    }
+
+    public PlanningRoundSnapshot(int round, PlanRequest originalRequest, TripPlan plan, String model,
+            long elapsedMs, List<String> problems, List<ConstraintCheckResult> constraintResults,
+            List<String> feedbackReceived, List<PlanningEvent> events) {
+        this(round, originalRequest, plan, model, elapsedMs, problems, constraintResults,
+                feedbackReceived, events, 0, "");
     }
 }

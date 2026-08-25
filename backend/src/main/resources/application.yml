@@ -12,6 +12,10 @@ spring:
 
 looptrip:
   chapter: 4
+  max-tokens: 20000
+  max-duration: 30s
+  multiplier: 1.2
+  same-fingerprint-limit: 2
   constraints:
     route:
       max-cross-area-per-day: 2

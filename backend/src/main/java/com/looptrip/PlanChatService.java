@@ -3,10 +3,11 @@ package com.looptrip;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import java.util.concurrent.TimeUnit;
+import java.time.Clock;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -29,18 +30,26 @@ public class PlanChatService implements PlanGenerator {
 
     private final ChatClient chatClient;
     private final String model;
+    private final Clock clock;
 
+    @Autowired
     public PlanChatService(
             ChatClient.Builder chatClientBuilder,
             TravelTools travelTools,
-            @Value("${spring.ai.openai.chat.options.model}") String model) {
+            @Value("${spring.ai.openai.chat.options.model}") String model,
+            Clock clock) {
         this.chatClient = chatClientBuilder.defaultTools(travelTools).build();
         this.model = model;
+        this.clock = clock;
+    }
+
+    PlanChatService(ChatClient.Builder chatClientBuilder, TravelTools travelTools, String model) {
+        this(chatClientBuilder, travelTools, model, Clock.systemUTC());
     }
 
     @Override
     public PlanGenerationResult generate(PlanGenerationInput input) {
-        long startedAt = System.nanoTime();
+        long startedAt = clock.millis();
         ChatClient.CallResponseSpec response;
         try {
             response = chatClient.prompt()
@@ -50,21 +59,30 @@ public class PlanChatService implements PlanGenerator {
         } catch (ModelCallException exception) {
             throw exception;
         } catch (Exception exception) {
-            throw new ModelCallException("模型调用失败，请稍后重试", exception);
+            throw new ModelCallException("模型调用失败，请稍后重试", exception, isTransient(exception));
         }
 
         long elapsedMs;
         try {
             TripPlan plan = response.entity(TripPlan.class);
-            elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+            elapsedMs = clock.millis() - startedAt;
             if (plan == null) {
                 return new PlanGenerationResult(null, model, elapsedMs, java.util.List.of(PARSE_FAILURE));
             }
             return PlanGenerationResult.success(plan, model, elapsedMs);
         } catch (RuntimeException exception) {
-            elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+            elapsedMs = clock.millis() - startedAt;
             return new PlanGenerationResult(null, model, elapsedMs, java.util.List.of(PARSE_FAILURE));
         }
+    }
+
+    private boolean isTransient(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            String text = (current.getClass().getName() + " " + current.getMessage()).toLowerCase();
+            if (text.contains("timeout") || text.contains("timed out") || text.contains("429")
+                    || text.matches(".*\\b5\\d\\d\\b.*")) return true;
+        }
+        return false;
     }
 
     static String buildPrompt(PlanGenerationInput input) {
