@@ -26,4 +26,10 @@ public class ApiExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                 .body(new ApiErrorResponse("MODEL_CALL_FAILED", exception.getMessage()));
     }
+
+    @ExceptionHandler(SessionOperationException.class)
+    public ResponseEntity<ApiErrorResponse> handleSessionOperation(SessionOperationException exception) {
+        return ResponseEntity.status(exception.status()).body(new ApiErrorResponse(
+                exception.code(), exception.getMessage(), exception.suggestion(), exception.availableVersions()));
+    }
 }

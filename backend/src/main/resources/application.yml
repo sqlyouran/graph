@@ -2,20 +2,35 @@ server:
   port: 8080
 
 spring:
+  http:
+    client:
+      connect-timeout: 10s
+      read-timeout: 120s
+
   ai:
+    retry:
+      max-attempts: 1
     openai:
       base-url: https://dashscope.aliyuncs.com/compatible-mode
       api-key: ${DASHSCOPE_API_KEY}
       chat:
         options:
-          model: qwen3.8-max
+          model: qwen3.8-flash
+          temperature: 0.2
+          max-completion-tokens: 4096
+          extra-body:
+            enable_thinking: false
 
 looptrip:
   chapter: 4
   max-tokens: 20000
-  max-duration: 30s
+  max-duration: 5m
   multiplier: 1.2
   same-fingerprint-limit: 2
+  session:
+    max-live: 20
+    ttl: 30m
+    storage-path: data/planning-sessions
   constraints:
     route:
       max-cross-area-per-day: 2

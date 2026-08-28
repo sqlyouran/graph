@@ -14,6 +14,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 @ExtendWith(MockitoExtension.class)
 class PlanChatServiceTests {
@@ -106,6 +107,20 @@ class PlanChatServiceTests {
                         () -> service.generate(new PlanGenerationInput(request(), 1, null, List.of())))
                 .isInstanceOf(ModelCallException.class).hasMessage("模型调用失败，请稍后重试")
                 .hasCauseInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void authenticationFailureNeverUsesFactFallback() {
+        FactBackedPlanGenerator fallback = org.mockito.Mockito.mock(FactBackedPlanGenerator.class);
+        PlanChatService serviceWithFallback = new PlanChatService(
+                chatClientBuilder, travelTools, "qwen-test", fallback);
+        when(chatClient.prompt()).thenThrow(new IllegalStateException("401 Unauthorized: invalid api key"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                        () -> serviceWithFallback.generate(new PlanGenerationInput(request(), 1, null, List.of())))
+                .isInstanceOf(ModelCallException.class)
+                .hasMessage("模型调用失败，请稍后重试");
+        verifyNoInteractions(fallback);
     }
 
     private void stubResponse(TripPlan plan) {

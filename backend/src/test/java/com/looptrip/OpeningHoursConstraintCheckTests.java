@@ -17,6 +17,8 @@ class OpeningHoursConstraintCheckTests {
         TravelDataService data = mock(TravelDataService.class);
         when(data.findAttractionByName("课程景点")).thenReturn(Optional.of(new AttractionFact(
                 "课程景点", "杭州", "西湖区", 0, LocalTime.of(9, 0), LocalTime.of(17, 0), List.of(), 60)));
+        when(data.searchAttractions("杭州")).thenReturn(List.of(new AttractionFact(
+                "课程景点", "杭州", "西湖区", 0, LocalTime.of(9, 0), LocalTime.of(17, 0), List.of(), 60)));
         OpeningHoursConstraintCheck check = new OpeningHoursConstraintCheck(data);
         TripPlan plan = plan(
                 new TripActivity("课程景点", "景点", LocalTime.of(9, 0), LocalTime.of(17, 0), "西湖区", 0),
@@ -31,6 +33,8 @@ class OpeningHoursConstraintCheckTests {
         TravelDataService data = mock(TravelDataService.class);
         when(data.findAttractionByName("课程景点")).thenReturn(Optional.of(new AttractionFact(
                 "课程景点", "杭州", "西湖区", 0, LocalTime.of(9, 0), LocalTime.of(17, 0), List.of(), 60)));
+        when(data.searchAttractions("杭州")).thenReturn(List.of(new AttractionFact(
+                "课程景点", "杭州", "西湖区", 0, LocalTime.of(9, 0), LocalTime.of(17, 0), List.of(), 60)));
         OpeningHoursConstraintCheck check = new OpeningHoursConstraintCheck(data);
 
         ConstraintCheckResult result = check.check(request(), plan(
@@ -40,6 +44,8 @@ class OpeningHoursConstraintCheckTests {
         assertThat(result.passed()).isFalse();
         assertThat(result.evidence()).anyMatch(item -> item.contains("08:59") && item.contains("开放时间"))
                 .anyMatch(item -> item.contains("未知景点") && item.contains("不存在"));
+        assertThat(result.suggestions()).anyMatch(item -> item.contains("未知景点")
+                && item.contains("课程景点") && item.contains("重新检查营业时间"));
     }
 
     private TripPlan plan(TripActivity... activities) {

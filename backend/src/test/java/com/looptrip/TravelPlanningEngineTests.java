@@ -49,11 +49,48 @@ class TravelPlanningEngineTests {
         assertThat(inputs.get(1).feedbackProblems())
                 .allMatch(problem -> problem.startsWith("C6 必去景点："))
                 .noneMatch(problem -> problem.startsWith("C5") || problem.startsWith("C7"));
+        assertThat(inputs.get(1).feedbackProblems()).hasSize(1);
         assertThat(result.rounds().get(0).constraintResults())
                 .filteredOn(item -> item.severity() == ConstraintSeverity.SOFT && !item.passed())
                 .isNotEmpty();
         assertThat(result.rounds().get(1).feedbackReceived())
                 .containsExactlyElementsOf(result.rounds().get(0).problems());
+    }
+
+    @Test
+    void emitsSelectedPlanDetailsAfterGeneration() {
+        InMemoryPlanningEventSink sink = new InMemoryPlanningEventSink();
+
+        PlanResponse result = engine(
+                input -> PlanGenerationResult.success(TestTripPlans.complete(3), "scripted", 1), sink)
+                .plan(request(1));
+
+        assertThat(result.rounds().get(0).events())
+                .filteredOn(event -> event.type() == PlanningEventType.SELECTION_COMPLETED)
+                .singleElement()
+                .satisfies(event -> {
+                    assertThat(event.message()).isEqualTo("模型已完成方案选择");
+                    assertThat(event.details()).containsKeys("summary", "selectedOutboundFlight",
+                            "selectedReturnFlight", "selectedHotels", "selectedAttractions");
+                });
+    }
+
+    @Test
+    void reviewEventNamesFailedHardChecksAndFeedbackIncludesReasonAndAction() {
+        PlanRequest request = new PlanRequest("上海", "杭州", LocalDate.of(2026, 10, 1), 3,
+                3000, 700, "轻松", List.of("灵隐寺"), 1);
+
+        PlanResponse result = engine(
+                input -> PlanGenerationResult.success(TestTripPlans.complete(3), "scripted", 1),
+                new InMemoryPlanningEventSink()).plan(request);
+
+        assertThat(result.rounds().get(0).events())
+                .filteredOn(event -> event.type() == PlanningEventType.REVIEW_COMPLETED)
+                .singleElement()
+                .satisfies(event -> assertThat(event.message())
+                        .contains("必改问题", "C6 必去景点"));
+        assertThat(result.problems()).singleElement()
+                .satisfies(problem -> assertThat(problem).contains("原因：", "修改："));
     }
 
     @Test

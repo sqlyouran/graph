@@ -25,7 +25,8 @@ public class ClosedDayConstraintCheck implements TripPlanConstraint {
                 var fact = travelData.findAttractionByName(activity.name());
                 if (fact.isEmpty()) {
                     evidence.add("景点“" + name + "”在事实快照中不存在，无法检查闭馆日");
-                    suggestions.add("使用事实快照中的景点原始名称");
+                    suggestions.add("将“" + name + "”改为已收录景点原名（可用："
+                            + availableAttractionNames(request) + "）后重新检查闭馆日");
                 } else if (day.date() == null) {
                     evidence.add("景点“" + name + "”所在日缺少日期");
                     suggestions.add("补充该日日期后重新检查闭馆日");
@@ -40,5 +41,12 @@ public class ClosedDayConstraintCheck implements TripPlanConstraint {
         boolean passed = suggestions.isEmpty();
         if (passed) suggestions.add("无需修改");
         return new ConstraintCheckResult("C3", "闭馆日", ConstraintSeverity.HARD, passed, evidence, suggestions);
+    }
+
+    private String availableAttractionNames(PlanRequest request) {
+        List<String> names = travelData.searchAttractions(request.destination()).stream()
+                .map(AttractionFact::name)
+                .toList();
+        return names.isEmpty() ? "当前目的地没有可用景点" : String.join("、", names);
     }
 }

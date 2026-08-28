@@ -25,7 +25,8 @@ public class OpeningHoursConstraintCheck implements TripPlanConstraint {
                 var fact = travelData.findAttractionByName(name);
                 if (fact.isEmpty()) {
                     evidence.add("景点“" + name + "”在事实快照中不存在，无法检查营业时间");
-                    suggestions.add("使用事实快照中的景点原始名称");
+                    suggestions.add("将“" + name + "”改为已收录景点原名（可用："
+                            + availableAttractionNames(request) + "）后重新检查营业时间");
                 } else if (activity.startTime() == null || activity.endTime() == null) {
                     evidence.add("景点“" + name + "”缺少开始或结束时间");
                     suggestions.add("补全“" + name + "”的活动时间");
@@ -43,5 +44,12 @@ public class OpeningHoursConstraintCheck implements TripPlanConstraint {
         boolean passed = suggestions.isEmpty();
         if (passed) suggestions.add("无需修改；餐饮和交通活动不参与本项检查");
         return new ConstraintCheckResult("C4", "营业时间", ConstraintSeverity.HARD, passed, evidence, suggestions);
+    }
+
+    private String availableAttractionNames(PlanRequest request) {
+        List<String> names = travelData.searchAttractions(request.destination()).stream()
+                .map(AttractionFact::name)
+                .toList();
+        return names.isEmpty() ? "当前目的地没有可用景点" : String.join("、", names);
     }
 }

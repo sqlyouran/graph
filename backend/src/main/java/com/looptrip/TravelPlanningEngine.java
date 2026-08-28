@@ -56,20 +56,26 @@ public class TravelPlanningEngine {
     }
 
     public PlanResponse plan(PlanRequest request) {
-        validate(request);
-        List<PlanningEvent> events = new ArrayList<>();
-        return eventSink.capture(events, () -> runLoop(request, events));
+        return plan(request, PlanningSeed.empty());
     }
 
-    private PlanResponse runLoop(PlanRequest request, List<PlanningEvent> events) {
+    public PlanResponse plan(PlanRequest request, PlanningSeed seed) {
+        validate(request);
+        List<PlanningEvent> events = new ArrayList<>();
+        PlanningSeed effectiveSeed = seed == null ? PlanningSeed.empty() : seed;
+        return eventSink.capture(events, () -> runLoop(request, effectiveSeed, events));
+    }
+
+    private PlanResponse runLoop(PlanRequest request, PlanningSeed seed, List<PlanningEvent> events) {
         if (preflight != null) {
             PreflightResult result = preflight.check(request);
             if (!result.canStart()) return terminalWithoutRounds(result.state(), result.report());
+            emit(PlanningEventType.PREFLIGHT_PASSED, "预检通过", Map.of());
         }
         List<PlanningRoundSnapshot> rounds = new ArrayList<>();
         PlanningLedger ledger = new PlanningLedger();
-        List<String> feedback = List.of();
-        TripPlan previousPlan = null;
+        List<String> feedback = seed.feedback();
+        TripPlan previousPlan = seed.previousPlan();
         PlanningRoundSnapshot bestRound = null;
         long totalElapsedMs = 0;
 
@@ -81,9 +87,14 @@ public class TravelPlanningEngine {
                 return response(bestRound, totalElapsedMs, PlanStatus.MAX_ROUNDS, report.reason(), rounds,
                         PlanningTerminalState.CANCELLED, report);
             }
+            if (bestRound != null && bestRound.passed()) {
+                emit(PlanningEventType.COMPLETED, "两层验收通过，规划完成", Map.of());
+                return response(bestRound, totalElapsedMs, PlanStatus.COMPLETED, "两层验收通过", rounds,
+                        PlanningTerminalState.SUCCESS, null);
+            }
             if (guardrail != null) {
                 Optional<PlanningStopReport> stopped = guardrail.beforeRound(ledger.snapshot(), request.maxRounds());
-                if (stopped.isPresent()) return guarded(bestRound, totalElapsedMs, rounds, stopped.get());
+                if (stopped.isPresent()) { emit(PlanningEventType.GUARD_TRIGGERED, stopped.get().reason(), Map.of()); return guarded(bestRound, totalElapsedMs, rounds, stopped.get()); }
             } else if (round > request.maxRounds()) {
                 return legacyMaxRounds(bestRound, totalElapsedMs, rounds);
             }
@@ -96,6 +107,10 @@ public class TravelPlanningEngine {
                     round,
                     previousPlan,
                     feedback);
+            emit(
+                    PlanningEventType.GENERATION_STARTED,
+                    "正在调用模型生成结构化行程",
+                    Map.of("model", "configured"));
             PlanGenerationResult generated = retryExecutor.execute(planGenerator, generationInput);
             totalElapsedMs += generated.elapsedMs();
             emit(
@@ -105,29 +120,41 @@ public class TravelPlanningEngine {
 
             List<String> problems = new ArrayList<>(generated.problems());
             List<ConstraintCheckResult> constraintResults = List.of();
+            int contractProblemCount = 0;
+            int hardFailureCount = 0;
             if (generated.plan() != null) {
-                problems.addAll(contractReview.review(request, generated.plan()).problems());
+                emitSelection(generated.plan());
+                List<String> contractProblems = contractReview.review(request, generated.plan()).problems();
+                contractProblemCount = contractProblems.size();
+                problems.addAll(contractProblems);
                 constraintResults = constraintReviewer.review(request, generated.plan());
                 for (ConstraintCheckResult result : constraintResults) {
                     if (!result.passed() && result.severity() == ConstraintSeverity.HARD) {
-                        for (String suggestion : result.suggestions()) {
-                            problems.add(result.code() + " " + result.name() + "：" + suggestion);
-                        }
+                        hardFailureCount++;
+                        String evidence = result.evidence().isEmpty()
+                                ? "未提供失败原因"
+                                : String.join("；", result.evidence());
+                        String suggestions = result.suggestions().isEmpty()
+                                ? "请根据检查证据修正"
+                                : String.join("；", result.suggestions());
+                        problems.add(result.code() + " " + result.name() + "：原因：" + evidence
+                                + "；修改：" + suggestions);
                     }
                 }
             } else if (problems.isEmpty()) {
                 problems.add("缺少可检查的结构化行程");
+                contractProblemCount = 1;
             }
             boolean passed = problems.isEmpty();
             emit(
                     PlanningEventType.REVIEW_COMPLETED,
-                    passed ? "两层验收通过" : "两层验收发现 " + problems.size() + " 个问题",
+                    passed ? "两层验收通过" : reviewSummary(contractProblemCount, constraintResults, generated.problems().size()),
                     Map.of("passed", passed, "problems", problems,
-                            "constraintResults", constraintResults));
+                            "constraintResults", constraintResults,
+                            "contractProblemCount", contractProblemCount,
+                            "hardFailureCount", hardFailureCount));
 
-            if (passed) {
-                emit(PlanningEventType.COMPLETED, "两层验收通过，规划完成", Map.of());
-            } else if (round < request.maxRounds()) {
+            if (!passed && round < request.maxRounds()) {
                 emit(
                         PlanningEventType.FEEDBACK_PREPARED,
                         "全部检查问题进入下一轮",
@@ -159,17 +186,6 @@ public class TravelPlanningEngine {
             if (bestRound == null
                     || snapshot.problems().size() < bestRound.problems().size()) {
                 bestRound = snapshot;
-            }
-
-            if (snapshot.passed()) {
-                return response(
-                        bestRound,
-                        totalElapsedMs,
-                        PlanStatus.COMPLETED,
-                        "两层验收通过",
-                        rounds,
-                        PlanningTerminalState.SUCCESS,
-                        null);
             }
 
             previousPlan = snapshot.plan();
@@ -238,6 +254,81 @@ public class TravelPlanningEngine {
                 .sorted(Comparator.comparing(ConstraintCheckResult::code))
                 .map(item -> item.code() + ":" + item.evidence().stream().sorted().reduce((a, b) -> a + "|" + b).orElse(""))
                 .reduce((a, b) -> a + "||" + b).orElse("");
+    }
+
+    private String reviewSummary(int contractProblemCount, List<ConstraintCheckResult> constraintResults,
+            int generationProblemCount) {
+        List<String> parts = new ArrayList<>();
+        if (generationProblemCount > 0) parts.add(generationProblemCount + " 个生成问题");
+        if (contractProblemCount > 0) parts.add(contractProblemCount + " 个契约问题");
+        List<String> hardFailures = constraintResults.stream()
+                .filter(item -> !item.passed() && item.severity() == ConstraintSeverity.HARD)
+                .map(item -> item.code() + " " + item.name())
+                .toList();
+        if (!hardFailures.isEmpty()) {
+            parts.add(hardFailures.size() + " 项必改问题（" + String.join("、", hardFailures) + "）");
+        }
+        return "两层验收发现 " + String.join("、", parts);
+    }
+
+    private void emitSelection(TripPlan plan) {
+        List<Map<String, Object>> hotels = plan.dailyPlans().stream()
+                .filter(day -> day.hotel() != null)
+                .map(day -> selectionMap(
+                        "date", day.date(),
+                        "name", day.hotel().name(),
+                        "area", day.hotel().area(),
+                        "pricePerNight", day.hotel().pricePerNight()))
+                .toList();
+        List<Map<String, Object>> attractions = plan.dailyPlans().stream()
+                .flatMap(day -> day.activities().stream()
+                        .filter(activity -> "ATTRACTION".equalsIgnoreCase(activity.type()))
+                        .map(activity -> selectionMap(
+                                "date", day.date(),
+                                "name", activity.name(),
+                                "area", activity.area(),
+                                "startTime", activity.startTime(),
+                                "endTime", activity.endTime())))
+                .toList();
+        Map<String, Object> details = new java.util.LinkedHashMap<>();
+        if (plan.outboundFlight() != null) details.put("selectedOutboundFlight", flightSelection(plan.outboundFlight()));
+        if (plan.returnFlight() != null) details.put("selectedReturnFlight", flightSelection(plan.returnFlight()));
+        details.put("selectedHotels", hotels);
+        details.put("selectedAttractions", attractions);
+        details.put("summary", selectionSummary(plan, hotels, attractions));
+        emit(PlanningEventType.SELECTION_COMPLETED, "模型已完成方案选择", details);
+    }
+
+    private Map<String, Object> flightSelection(TripFlight flight) {
+        Map<String, Object> selected = new java.util.LinkedHashMap<>();
+        selected.put("flightNumber", flight.flightNumber());
+        selected.put("origin", flight.origin());
+        selected.put("destination", flight.destination());
+        selected.put("departureTime", flight.departureTime());
+        selected.put("arrivalTime", flight.arrivalTime());
+        selected.put("price", flight.price());
+        return selected;
+    }
+
+    private Map<String, Object> selectionMap(Object... keysAndValues) {
+        Map<String, Object> selected = new java.util.LinkedHashMap<>();
+        for (int index = 0; index < keysAndValues.length; index += 2) {
+            Object value = keysAndValues[index + 1];
+            if (value != null) selected.put((String) keysAndValues[index], value);
+        }
+        return selected;
+    }
+
+    private String selectionSummary(TripPlan plan, List<Map<String, Object>> hotels,
+            List<Map<String, Object>> attractions) {
+        List<String> choices = new ArrayList<>();
+        if (plan.outboundFlight() != null) choices.add("去程 " + plan.outboundFlight().flightNumber());
+        if (plan.returnFlight() != null) choices.add("返程 " + plan.returnFlight().flightNumber());
+        List<String> hotelNames = hotels.stream().map(hotel -> String.valueOf(hotel.get("name"))).distinct().toList();
+        if (!hotelNames.isEmpty()) choices.add("酒店 " + String.join("、", hotelNames));
+        List<String> attractionNames = attractions.stream().map(item -> String.valueOf(item.get("name"))).toList();
+        if (!attractionNames.isEmpty()) choices.add("景点 " + String.join("、", attractionNames));
+        return choices.isEmpty() ? "模型未选出可展示的航班、酒店或景点" : String.join("；", choices);
     }
 
     private void validate(PlanRequest request) {

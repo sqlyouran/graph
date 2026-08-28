@@ -19,6 +19,9 @@ class ClosedDayConstraintCheckTests {
         when(data.findAttractionByName("周一闭馆馆")).thenReturn(Optional.of(new AttractionFact(
                 "周一闭馆馆", "杭州", "西湖区", 0, LocalTime.of(9, 0), LocalTime.of(17, 0),
                 List.of(DayOfWeek.MONDAY), 60)));
+        when(data.searchAttractions("杭州")).thenReturn(List.of(new AttractionFact(
+                "周一闭馆馆", "杭州", "西湖区", 0, LocalTime.of(9, 0), LocalTime.of(17, 0),
+                List.of(DayOfWeek.MONDAY), 60)));
         ClosedDayConstraintCheck check = new ClosedDayConstraintCheck(data);
 
         ConstraintCheckResult monday = check.check(request(LocalDate.of(2026, 10, 5)),
@@ -32,6 +35,8 @@ class ClosedDayConstraintCheckTests {
         assertThat(monday.evidence()).anyMatch(item -> item.contains("MONDAY") && item.contains("闭馆"));
         assertThat(tuesday.passed()).isTrue();
         assertThat(unknown.passed()).isFalse();
+        assertThat(unknown.suggestions()).anyMatch(item -> item.contains("未知景点")
+                && item.contains("周一闭馆馆") && item.contains("重新检查闭馆日"));
     }
 
     private TripPlan plan(LocalDate date, String name) {

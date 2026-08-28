@@ -64,7 +64,8 @@ public class BudgetConstraintCheck implements TripPlanConstraint {
                 var fact = travelData.findAttractionByName(name);
                 if (fact.isEmpty()) {
                     evidence.add("景点“" + name + "”在事实快照中不存在");
-                    suggestions.add("将景点改为事实快照中的原始名称，或删除该活动");
+                    suggestions.add("将“" + name + "”改为已收录景点原名（可用："
+                            + availableAttractionNames(request) + "），或删除该活动");
                     continue;
                 }
                 ticketsCost += fact.get().ticketPrice();
@@ -80,6 +81,13 @@ public class BudgetConstraintCheck implements TripPlanConstraint {
         boolean passed = suggestions.isEmpty();
         if (passed) suggestions.add("无需修改，事实总价和酒店每晚价格均满足限制");
         return new ConstraintCheckResult("C1", "预算", ConstraintSeverity.HARD, passed, evidence, suggestions);
+    }
+
+    private String availableAttractionNames(PlanRequest request) {
+        List<String> names = travelData.searchAttractions(request.destination()).stream()
+                .map(AttractionFact::name)
+                .toList();
+        return names.isEmpty() ? "当前目的地没有可用景点" : String.join("、", names);
     }
 
     private int flightCost(String direction, TripFlight flight, List<String> evidence, List<String> suggestions) {

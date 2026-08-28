@@ -2,6 +2,7 @@ package com.looptrip;
 
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,7 +40,9 @@ public class TravelTools {
                 "tool", "searchFlights",
                 "origin", String.valueOf(origin),
                 "destination", String.valueOf(destination),
-                "resultCount", results.size()));
+                "resultCount", results.size(),
+                "summary", flightSummary(origin, destination, results),
+                "candidates", results.stream().map(this::flightCandidate).toList()));
         return results;
     }
 
@@ -60,7 +63,9 @@ public class TravelTools {
                 "tool", "searchHotels",
                 "destination", String.valueOf(destination),
                 "maxPricePerNight", maxPricePerNight,
-                "resultCount", results.size()));
+                "resultCount", results.size(),
+                "summary", hotelSummary(results),
+                "candidates", results.stream().map(this::hotelCandidate).toList()));
         return results;
     }
 
@@ -79,7 +84,9 @@ public class TravelTools {
         emitToolEvent("查询景点", Map.of(
                 "tool", "searchAttractions",
                 "destination", String.valueOf(destination),
-                "resultCount", results.size()));
+                "resultCount", results.size(),
+                "summary", attractionSummary(results),
+                "candidates", results.stream().map(this::attractionCandidate).toList()));
         return results;
     }
 
@@ -100,8 +107,64 @@ public class TravelTools {
                 "tool", "queryWeather",
                 "destination", String.valueOf(destination),
                 "date", String.valueOf(date),
-                "resultCount", results.size()));
+                "resultCount", results.size(),
+                "summary", weatherSummary(date, results),
+                "candidates", results.stream().map(this::weatherCandidate).toList()));
         return results;
+    }
+
+    private String flightSummary(String origin, String destination, List<FlightFact> results) {
+        if (results.isEmpty()) return origin + "至" + destination + "暂无航班";
+        return origin + "至" + destination + "找到 " + results.size() + " 班：" + results.stream()
+                .map(item -> item.flightNumber() + " " + item.departureTime().toLocalTime()
+                        + "，" + item.price() + " 元")
+                .reduce((left, right) -> left + "；" + right).orElse("");
+    }
+
+    private String hotelSummary(List<HotelFact> results) {
+        if (results.isEmpty()) return "限价内暂无酒店";
+        return "找到 " + results.size() + " 家：" + results.stream()
+                .map(item -> item.name() + "（" + item.area() + "，" + item.pricePerNight() + " 元/晚）")
+                .reduce((left, right) -> left + "；" + right).orElse("");
+    }
+
+    private String attractionSummary(List<AttractionFact> results) {
+        if (results.isEmpty()) return "暂无景点数据";
+        return "找到 " + results.size() + " 个：" + results.stream()
+                .map(item -> item.name() + "（" + item.ticketPrice() + " 元，"
+                        + item.openTime() + "-" + item.closeTime() + "）")
+                .reduce((left, right) -> left + "；" + right).orElse("");
+    }
+
+    private String weatherSummary(String date, List<WeatherFact> results) {
+        if (results.isEmpty()) return date + " 暂无天气数据";
+        WeatherFact item = results.getFirst();
+        return item.date() + " " + item.weather() + "，" + item.minTemperature() + "-"
+                + item.maxTemperature() + "℃，降水概率 " + item.precipitationProbability() + "%";
+    }
+
+    private Map<String, Object> flightCandidate(FlightFact item) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", item.flightNumber()); result.put("label", item.flightNumber());
+        result.put("departureTime", item.departureTime().toString()); result.put("arrivalTime", item.arrivalTime().toString());
+        result.put("price", item.price()); return result;
+    }
+
+    private Map<String, Object> hotelCandidate(HotelFact item) {
+        return Map.of("id", item.name(), "label", item.name(), "area", item.area(),
+                "pricePerNight", item.pricePerNight(), "rating", item.rating());
+    }
+
+    private Map<String, Object> attractionCandidate(AttractionFact item) {
+        return Map.of("id", item.name(), "label", item.name(), "area", item.area(),
+                "ticketPrice", item.ticketPrice(), "openTime", item.openTime().toString(),
+                "closeTime", item.closeTime().toString());
+    }
+
+    private Map<String, Object> weatherCandidate(WeatherFact item) {
+        return Map.of("id", item.date().toString(), "label", item.weather(), "date", item.date().toString(),
+                "minTemperature", item.minTemperature(), "maxTemperature", item.maxTemperature(),
+                "precipitationProbability", item.precipitationProbability());
     }
 
     private void emitToolEvent(String message, Map<String, Object> details) {

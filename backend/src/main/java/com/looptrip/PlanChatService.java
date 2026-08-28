@@ -10,9 +10,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class PlanChatService implements PlanGenerator {
+
+    private static final Logger log = LoggerFactory.getLogger(PlanChatService.class);
 
     static final String SYSTEM_PROMPT = """
             你是一名旅行规划师。请直接回答用户的旅行规划问题，不要寒暄。
@@ -31,20 +35,31 @@ public class PlanChatService implements PlanGenerator {
     private final ChatClient chatClient;
     private final String model;
     private final Clock clock;
+    private final FactBackedPlanGenerator fallback;
 
     @Autowired
     public PlanChatService(
             ChatClient.Builder chatClientBuilder,
             TravelTools travelTools,
             @Value("${spring.ai.openai.chat.options.model}") String model,
-            Clock clock) {
+            Clock clock,
+            FactBackedPlanGenerator fallback) {
         this.chatClient = chatClientBuilder.defaultTools(travelTools).build();
         this.model = model;
         this.clock = clock;
+        this.fallback = fallback;
     }
 
     PlanChatService(ChatClient.Builder chatClientBuilder, TravelTools travelTools, String model) {
-        this(chatClientBuilder, travelTools, model, Clock.systemUTC());
+        this(chatClientBuilder, travelTools, model, null);
+    }
+
+    PlanChatService(ChatClient.Builder chatClientBuilder, TravelTools travelTools, String model,
+            FactBackedPlanGenerator fallback) {
+        this.chatClient = chatClientBuilder.defaultTools(travelTools).build();
+        this.model = model;
+        this.clock = Clock.systemUTC();
+        this.fallback = fallback;
     }
 
     @Override
@@ -57,9 +72,10 @@ public class PlanChatService implements PlanGenerator {
                     .user(buildPrompt(input))
                     .call();
         } catch (ModelCallException exception) {
-            throw exception;
+            return fallbackOrThrow(input, startedAt, exception);
         } catch (Exception exception) {
-            throw new ModelCallException("模型调用失败，请稍后重试", exception, isTransient(exception));
+            return fallbackOrThrow(input, startedAt,
+                    new ModelCallException("模型调用失败，请稍后重试", exception, isTransient(exception)));
         }
 
         long elapsedMs;
@@ -72,15 +88,44 @@ public class PlanChatService implements PlanGenerator {
             return PlanGenerationResult.success(plan, model, elapsedMs);
         } catch (RuntimeException exception) {
             elapsedMs = clock.millis() - startedAt;
+            if (fallback != null) {
+                log.warn(isTimeout(exception)
+                        ? "Model response timed out; using fact-backed fallback"
+                        : "Structured TripPlan parsing failed; using fact-backed fallback", exception);
+                return PlanGenerationResult.success(fallback.generate(input.originalRequest()),
+                        model + "+fact-fallback", elapsedMs);
+            }
             return new PlanGenerationResult(null, model, elapsedMs, java.util.List.of(PARSE_FAILURE));
         }
+    }
+
+    private PlanGenerationResult fallbackOrThrow(PlanGenerationInput input, long startedAt,
+            ModelCallException exception) {
+        if (fallback == null || !exception.retryable()) throw exception;
+        log.warn("Model call failed; using fact-backed fallback", exception);
+        return PlanGenerationResult.success(fallback.generate(input.originalRequest()),
+                model + "+fact-fallback", clock.millis() - startedAt);
     }
 
     private boolean isTransient(Throwable failure) {
         for (Throwable current = failure; current != null; current = current.getCause()) {
             String text = (current.getClass().getName() + " " + current.getMessage()).toLowerCase();
-            if (text.contains("timeout") || text.contains("timed out") || text.contains("429")
-                    || text.matches(".*\\b5\\d\\d\\b.*")) return true;
+            // A full model timeout is unlikely to recover immediately and retrying it can
+            // multiply one request into several minutes of silent waiting.
+            if (text.contains("timeout") || text.contains("timed out") || text.contains("request cancelled")) {
+                return false;
+            }
+            if (text.contains("429") || text.matches(".*\\b5\\d\\d\\b.*")) return true;
+        }
+        return false;
+    }
+
+    private boolean isTimeout(Throwable failure) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            String text = (current.getClass().getName() + " " + current.getMessage()).toLowerCase();
+            if (text.contains("timeout") || text.contains("timed out") || text.contains("request cancelled")) {
+                return true;
+            }
         }
         return false;
     }

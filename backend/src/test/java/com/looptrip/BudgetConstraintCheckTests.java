@@ -42,6 +42,8 @@ class BudgetConstraintCheckTests {
         assertThat(unknown.evidence()).anyMatch(item -> item.contains("UNKNOWN") && item.contains("不存在"))
                 .anyMatch(item -> item.contains("未知酒店") && item.contains("不存在"))
                 .anyMatch(item -> item.contains("未知景点") && item.contains("不存在"));
+        assertThat(unknown.suggestions()).anyMatch(item -> item.contains("未知景点")
+                && item.contains("课程景点") && item.contains("删除该活动"));
     }
 
     private TravelDataService facts() {
@@ -51,6 +53,9 @@ class BudgetConstraintCheckTests {
                 LocalDateTime.parse("2026-10-01T09:00:00"), 100)));
         when(data.findHotelByName("课程酒店")).thenReturn(Optional.of(new HotelFact("课程酒店", "杭州", "西湖区", 300, 4.5)));
         when(data.findAttractionByName("课程景点")).thenReturn(Optional.of(new AttractionFact(
+                "课程景点", "杭州", "西湖区", 50, LocalTime.of(9, 0), LocalTime.of(17, 0),
+                List.of(DayOfWeek.MONDAY), 120)));
+        when(data.searchAttractions("杭州")).thenReturn(List.of(new AttractionFact(
                 "课程景点", "杭州", "西湖区", 50, LocalTime.of(9, 0), LocalTime.of(17, 0),
                 List.of(DayOfWeek.MONDAY), 120)));
         return data;
