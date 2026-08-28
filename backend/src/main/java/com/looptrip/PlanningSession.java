@@ -19,6 +19,7 @@ public final class PlanningSession {
     private volatile PlanResponse response;
     private volatile int currentVersion;
     private volatile Instant updatedAt;
+    private volatile PlanningIntent pendingIntent;
 
     PlanningSession(String id, PlanRequest request) {
         this.id = id;
@@ -47,6 +48,8 @@ public final class PlanningSession {
     public Instant updatedAt() { return updatedAt; }
     void updatedAt(Instant value) { updatedAt = value; }
     void touch() { updatedAt = Instant.now(); }
+    public PlanningIntent pendingIntent() { return pendingIntent; }
+    public void pendingIntent(PlanningIntent value) { pendingIntent = value; touch(); }
 
     public Map<String, Object> bestSummary() {
         if (response == null || response.plan() == null) return Map.of("available", false);

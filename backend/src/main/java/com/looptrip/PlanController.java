@@ -27,21 +27,30 @@ public class PlanController {
     private final PlanningSessionContext sessionContext;
     private final RevisionPolicy revisionPolicy;
     private final Executor executor;
+    private final PlanningChatServiceFacade chatService;
+    private final PlanningIntentGate intentGate = new PlanningIntentGate();
 
     public PlanController(TravelPlanningEngine planningEngine) {
-        this(planningEngine, null, null, null, null, Runnable::run);
+        this(planningEngine, null, null, null, null, Runnable::run, null);
     }
 
     @Autowired
     public PlanController(TravelPlanningEngine planningEngine, PlanningSessionStore sessions,
             SsePlanningEventSink sse, PlanningSessionContext sessionContext,
-            RevisionPolicy revisionPolicy, Executor planningSessionExecutor) {
+            RevisionPolicy revisionPolicy, Executor planningSessionExecutor,
+            PlanningChatServiceFacade chatService) {
         this.planningEngine = planningEngine;
         this.sessions = sessions;
         this.sse = sse;
         this.sessionContext = sessionContext;
         this.revisionPolicy = revisionPolicy;
         this.executor = planningSessionExecutor;
+        this.chatService = chatService;
+    }
+
+    public PlanController(TravelPlanningEngine engine, PlanningSessionStore sessions, SsePlanningEventSink sse,
+            PlanningSessionContext context, RevisionPolicy policy, Executor executor) {
+        this(engine, sessions, sse, context, policy, executor, null);
     }
 
     @PostMapping("/ask")
@@ -97,6 +106,53 @@ public class PlanController {
         PlanResponse response = sessions.rollback(session, version);
         return Map.of("sessionId", id, "currentVersion", version, "response", response);
     }
+
+    @PostMapping("/{id}/chat")
+    public PlanningChatResponse chat(@PathVariable String id, @RequestBody PlanningChatRequest request) {
+        PlanningSession session = requireSession(id);
+        if (chatService == null) return new PlanningChatResponse(PlanningIntentAction.UNKNOWN, Map.of(), "", PlanningChatDecision.UNRECOGNIZED, "聊天功能不可用", null);
+        String utterance = request == null ? "" : request.utterance();
+        if (request != null && request.confirmed() && session.pendingIntent() == null)
+            return new PlanningChatResponse(PlanningIntentAction.UNKNOWN, Map.of(), "", PlanningChatDecision.CLARIFICATION_REQUIRED, "没有待确认的修改，请重新描述你的需求。", null);
+        PlanningIntent intent = request != null && request.confirmed() && session.pendingIntent() != null
+                ? session.pendingIntent() : chatService.recognize(utterance, session);
+        if (request != null && request.confirmed() && session.pendingIntent() != null) {
+            PlanningIntent pending = session.pendingIntent();
+            intent = new PlanningIntent(pending.action(), pending.slots(), pending.echo(), utterance);
+        }
+        sessions.publish(session, new PlanningSessionStore.PublicEvent(0, PlanningEventType.INTENT_RECOGNIZED,
+                intent.echo(), Map.of("action", intent.action().name(), "slots", intent.slots(), "echo", intent.echo())));
+        PlanningIntentGate.Result gate = intentGate.decide(intent, request != null && request.confirmed(), session);
+        if (gate.decision() == PlanningChatDecision.UNRECOGNIZED || gate.decision() == PlanningChatDecision.CLARIFICATION_REQUIRED)
+            return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), gate.decision(), gate.text(), null);
+        if (intent.action() == PlanningIntentAction.ASK_QUESTION) return chatService.question(intent, session);
+        if (intent.action() == PlanningIntentAction.NEW_SESSION)
+            return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), PlanningChatDecision.NEW_SESSION_SUGGESTED, "请确认后用新行程开始规划。", null);
+        if (intent.action() == PlanningIntentAction.ROLLBACK) {
+            int version = ((Number) intent.slots().getOrDefault("rollbackVersion", Math.max(0, session.currentVersion() - 1))).intValue();
+            if (version <= 0) return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), PlanningChatDecision.CLARIFICATION_REQUIRED, "当前没有可回滚的上一版方案。", null);
+            return new PlanningChatResponse(intent.action(), Map.of("rollbackVersion", version), intent.echo(), PlanningChatDecision.EXECUTED, "已回滚到上一版方案。", rollback(id, version));
+        }
+        if (!request.confirmed()) {
+            session.pendingIntent(intent);
+            return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), gate.decision(), gate.text(), null);
+        }
+        session.pendingIntent(null);
+        if (intent.action() == PlanningIntentAction.CANCEL) return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), PlanningChatDecision.EXECUTED, "已收到取消请求。", cancel(id));
+        RevisionRequest revision = toRevision(intent, session.request());
+        ResponseEntity<Map<String, Object>> response = revise(id, revision);
+        return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), PlanningChatDecision.EXECUTED, "修改已开始。", response.getBody());
+    }
+
+    private RevisionRequest toRevision(PlanningIntent intent, PlanRequest current) {
+        Integer budget = number(intent.slots().get("budget"));
+        Integer hotel = number(intent.slots().get("maxHotelPrice"));
+        @SuppressWarnings("unchecked") List<String> places = (List<String>) intent.slots().get("mustVisit");
+        String preferences = intent.action() == PlanningIntentAction.ADJUST_PACE
+                ? current.preferences() + "；调整节奏，安排更宽松" : (String) intent.slots().get("preferences");
+        return new RevisionRequest(budget, hotel, preferences, null, places, null, null, null);
+    }
+    private Integer number(Object value) { return value instanceof Number n ? n.intValue() : null; }
 
     @GetMapping(value = "/{id}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@PathVariable String id) {

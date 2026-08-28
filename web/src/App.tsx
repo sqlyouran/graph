@@ -417,6 +417,8 @@ export function App() {
   const [actionError, setActionError] = useState("");
   const [loadingPreviewVersion, setLoadingPreviewVersion] = useState<number | null>(null);
   const [loadingMode, setLoadingMode] = useState<"new" | "revision">("new");
+  const [chatUtterance, setChatUtterance] = useState("");
+  const [chatReply, setChatReply] = useState<{ text:string; echo?:string; confirm?:boolean } | null>(null);
   const requestGeneration = useRef(0);
 
   useEffect(() => {
@@ -502,6 +504,21 @@ export function App() {
     const payload = await response.json();
     if (!response.ok) { setActionError(payload.message || "取消请求失败"); return; }
     setCancelPending(true);
+  }
+
+  async function sendChat(confirmed = false) {
+    if (!result?.sessionId || !chatUtterance.trim()) return;
+    const response = await fetch(`/api/plan/${result.sessionId}/chat`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ utterance: chatUtterance.trim(), confirmed }),
+    });
+    const payload = await response.json();
+    setChatReply({ text: payload.text || "暂时无法处理这句话", echo: payload.echo,
+      confirm: payload.decision === "CONFIRM_REQUIRED" });
+    if (payload.decision === "EXECUTED" && payload.result?.response) {
+      const plan = payload.result.response as PlanResponse;
+      setResult(current => current ? { ...current, ...plan, markdown: plan.plan ? tripPlanToMarkdown(plan.plan) : current.markdown } : current);
+    }
   }
 
   async function handleRevision() {
@@ -714,6 +731,19 @@ export function App() {
               {viewState !== "loading" && <ArrowRight size={16} aria-hidden="true" />}
             </button>
           </form>
+          {result?.sessionId && <div className="mt-8 border-t border-zinc-200 pt-5">
+            <p className="text-xs font-semibold text-zinc-700">也可以直接说</p>
+            <div className="mt-2 flex gap-2">
+              <input className={inputClass(false)} value={chatUtterance} onChange={event => setChatUtterance(event.target.value)}
+                placeholder="例如：太贵了、还是上一版好" onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void sendChat(); } }} />
+              <button type="button" onClick={() => void sendChat()} className="shrink-0 bg-zinc-900 px-3 text-xs font-medium text-white">发送</button>
+            </div>
+            {chatReply && <div className="mt-3 border-l-2 border-emerald-300 bg-emerald-50 px-3 py-2 text-xs leading-5 text-zinc-700">
+              {chatReply.echo && <p className="font-medium">{chatReply.echo}</p>}
+              <p>{chatReply.text}</p>
+              {chatReply.confirm && <button type="button" onClick={() => void sendChat(true)} className="mt-2 bg-zinc-900 px-3 py-1.5 text-xs text-white">确认执行</button>}
+            </div>}
+          </div>}
         </aside>
 
         <section className="min-w-0 p-4 sm:p-6 lg:p-8">

@@ -18,7 +18,8 @@ public class SsePlanningEventSink implements PlanningEventSink {
         for(String k:List.of("elapsedMs","model","passed","tool","origin","destination","date",
                 "resultCount","summary","candidates","selectedOutboundFlight","selectedReturnFlight",
                 "selectedHotels","selectedAttractions","contractProblemCount","hardFailureCount",
-                "constraintResults","version","bestVersion","hasBestPlan","requestDiff")) {
+                "constraintResults","version","bestVersion","hasBestPlan","requestDiff",
+                "action","slots","echo","decision")) {
             if(details.containsKey(k)) safe.put(k, details.get(k));
         }
         if(type==PlanningEventType.REVIEW_COMPLETED && details.containsKey("problems")) {

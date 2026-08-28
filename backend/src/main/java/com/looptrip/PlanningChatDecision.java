@@ -1,0 +1,5 @@
+package com.looptrip;
+
+public enum PlanningChatDecision {
+    EXECUTED, CONFIRM_REQUIRED, CLARIFICATION_REQUIRED, NEW_SESSION_SUGGESTED, ANSWERED, UNRECOGNIZED
+}
