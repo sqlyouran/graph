@@ -250,6 +250,8 @@ async function waitForSession(sessionId: string, onEvent: (event: LiveEvent) => 
   });
 }
 
+type ChatMessage = { role: "user" | "assistant"; text: string; echo?: string; confirm?: boolean; pendingUtterance?: string };
+
 async function requestPlan(values: FormValues, onEvent: (event: LiveEvent) => void,
   onSession: (sessionId: string) => void): Promise<PlanResult> {
   if (USE_MOCK) {
@@ -391,6 +393,22 @@ function needsNewSession(result: PlanResult, form: FormValues) {
     || current.mustVisit.some(item => !requestedMustVisit.has(item));
 }
 
+function currentRequestValues(result: PlanResult): FormValues | null {
+  const current = result.versions?.find(version => version.version === result.currentVersion)?.request;
+  if (!current) return null;
+  return {
+    origin: current.origin,
+    destination: current.destination,
+    startDate: current.startDate,
+    days: String(current.days),
+    budget: String(current.budget),
+    maxHotelPrice: String(current.maxHotelPrice),
+    maxRounds: String(current.maxRounds),
+    preferences: current.preferences === "没有特别偏好" ? "" : current.preferences,
+    mustVisit: current.mustVisit.join("、"),
+  };
+}
+
 function isIsoDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return false;
@@ -418,7 +436,9 @@ export function App() {
   const [loadingPreviewVersion, setLoadingPreviewVersion] = useState<number | null>(null);
   const [loadingMode, setLoadingMode] = useState<"new" | "revision">("new");
   const [chatUtterance, setChatUtterance] = useState("");
-  const [chatReply, setChatReply] = useState<{ text:string; echo?:string; confirm?:boolean } | null>(null);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const chatLogRef = useRef<HTMLDivElement>(null);
   const requestGeneration = useRef(0);
 
   useEffect(() => {
@@ -448,6 +468,10 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [viewState]);
 
+  useEffect(() => {
+    chatLogRef.current?.scrollTo({ top: chatLogRef.current.scrollHeight });
+  }, [chatMessages]);
+
   function updateField(field: keyof FormValues, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
     if (fieldErrors[field]) {
@@ -472,6 +496,7 @@ export function App() {
     setPlanError("");
     setLiveEvents([]);
     setCancelPending(false);
+    setChatMessages([]);
     setActionError("");
     setLoadingPreviewVersion(null);
     setLoadingMode("new");
@@ -506,18 +531,68 @@ export function App() {
     setCancelPending(true);
   }
 
-  async function sendChat(confirmed = false) {
-    if (!result?.sessionId || !chatUtterance.trim()) return;
-    const response = await fetch(`/api/plan/${result.sessionId}/chat`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ utterance: chatUtterance.trim(), confirmed }),
-    });
-    const payload = await response.json();
-    setChatReply({ text: payload.text || "暂时无法处理这句话", echo: payload.echo,
-      confirm: payload.decision === "CONFIRM_REQUIRED" });
-    if (payload.decision === "EXECUTED" && payload.result?.response) {
-      const plan = payload.result.response as PlanResponse;
-      setResult(current => current ? { ...current, ...plan, markdown: plan.plan ? tripPlanToMarkdown(plan.plan) : current.markdown } : current);
+  async function sendChat(confirmed = false, pendingUtterance?: string) {
+    if (!result?.sessionId || chatBusy) return;
+    const utterance = confirmed ? (pendingUtterance ?? "").trim() : chatUtterance.trim();
+    if (!utterance) return;
+    setChatBusy(true);
+    setChatMessages(current => [...current, { role: "user", text: confirmed ? "确认执行" : utterance }]);
+    if (!confirmed) setChatUtterance("");
+    let revisionStarted = false;
+    try {
+      const response = await fetch(`/api/plan/${result.sessionId}/chat`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ utterance, confirmed }),
+      });
+      const payload = await response.json();
+      setChatMessages(current => [...current, { role: "assistant", text: payload.text || "暂时无法处理这句话",
+        echo: payload.echo, confirm: payload.decision === "CONFIRM_REQUIRED", pendingUtterance: utterance }]);
+      if (payload.decision === "EXECUTED" && payload.result?.response) {
+        // chat 回滚：重拉快照同步版本链，再回写表单与请求摘要
+        const sessionId = result.sessionId;
+        const snapshot = await fetch(`/api/plan/${sessionId}`).then(response => response.json());
+        const plan = snapshot.response as PlanResponse;
+        const rolledBack = {markdown:plan.plan ? tripPlanToMarkdown(plan.plan) : "该版本没有可展示的方案。", model:plan.model,
+          durationMs:plan.elapsedMs, status:plan.status, stopReason:plan.stopReason, problems:plan.problems,
+          rounds:plan.rounds, sessionId, terminalState:snapshot.terminalState,
+          versions:snapshot.versions, currentVersion:snapshot.currentVersion} as PlanResult;
+        const merged = mergeSessionResult(rolledBack, result, false);
+        setResult(merged);
+        const values = currentRequestValues(merged);
+        if (values) { setForm(values); setRequestText(buildRequest(values)); }
+      } else if (payload.decision === "EXECUTED" && payload.result?.eventOffset != null && result) {
+        revisionStarted = true;
+        const generation = ++requestGeneration.current;
+        const sessionId = result.sessionId;
+        setViewState("loading"); setLiveEvents([]); setCancelPending(false);
+        setLoadingPreviewVersion(null); setLoadingMode("revision");
+        // 生效即联动：槽位立刻回写表单与请求摘要，跑完后再用权威版本校正
+        const slots = (payload.slots ?? {}) as Record<string, unknown>;
+        const nextForm = { ...form };
+        if (typeof slots.budget === "number") nextForm.budget = String(slots.budget);
+        if (typeof slots.maxHotelPrice === "number") nextForm.maxHotelPrice = String(slots.maxHotelPrice);
+        if (typeof slots.preferences === "string" && slots.preferences) nextForm.preferences = slots.preferences;
+        if (Array.isArray(slots.mustVisit)) nextForm.mustVisit = slots.mustVisit.join("、");
+        setForm(nextForm);
+        setRequestText(buildRequest(nextForm));
+        const revised = await waitForSession(sessionId, event => {
+          if (requestGeneration.current === generation) setLiveEvents(current => addLiveEvent(current, event));
+        }, Number(payload.result.eventOffset));
+        if (requestGeneration.current !== generation) return;
+        const merged = mergeSessionResult(revised, result, false);
+        setResult(merged);
+        const values = currentRequestValues(merged);
+        if (values) { setForm(values); setRequestText(buildRequest(values)); }
+        setViewState("done");
+      }
+    } catch (error) {
+      setChatMessages(current => [...current, { role: "assistant", text: "请求失败，请稍后重试。" }]);
+      if (revisionStarted) {
+        setPlanError(error instanceof Error ? error.message : "续修失败");
+        setViewState("error");
+      }
+    } finally {
+      setChatBusy(false);
     }
   }
 
@@ -538,6 +613,7 @@ export function App() {
     const payload = await response.json();
     if (!response.ok) { setActionError([payload.message, payload.suggestion].filter(Boolean).join("；")); return; }
     if (requestGeneration.current !== generation) return;
+    setRequestText(buildRequest(form));
     setViewState("loading"); setLiveEvents([]); setCancelPending(false);
     setLoadingPreviewVersion(null);
     setLoadingMode("revision");
@@ -546,7 +622,11 @@ export function App() {
       if (requestGeneration.current === generation) setLiveEvents(current => addLiveEvent(current, event));
     }, eventOffset);
       if (requestGeneration.current !== generation) return;
-      setResult(mergeSessionResult(revised, result, false)); setViewState("done");
+      const merged = mergeSessionResult(revised, result, false);
+      setResult(merged);
+      const values = currentRequestValues(merged);
+      if (values) { setForm(values); setRequestText(buildRequest(values)); }
+      setViewState("done");
     } catch (error) {
       if (requestGeneration.current !== generation) return;
       setPlanError(error instanceof Error ? error.message : "续修失败"); setViewState("error");
@@ -568,7 +648,10 @@ export function App() {
       durationMs:plan.elapsedMs, status:plan.status, stopReason:plan.stopReason, problems:plan.problems,
       rounds:plan.rounds, sessionId:targetSessionId, terminalState:snapshot.terminalState,
       versions:snapshot.versions, currentVersion:snapshot.currentVersion} as PlanResult;
-    setResult(mergeSessionResult(rolledBack, result, false));
+    const merged = mergeSessionResult(rolledBack, result, false);
+    setResult(merged);
+    const values = currentRequestValues(merged);
+    if (values) { setForm(values); setRequestText(buildRequest(values)); }
   }
 
   function previewState(state: ViewState) {
@@ -733,16 +816,21 @@ export function App() {
           </form>
           {result?.sessionId && <div className="mt-8 border-t border-zinc-200 pt-5">
             <p className="text-xs font-semibold text-zinc-700">也可以直接说</p>
+            {chatMessages.length > 0 && <div ref={chatLogRef} className="mt-2 flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
+              {chatMessages.map((message, index) => message.role === "user"
+                ? <div key={index} className="max-w-[85%] self-end rounded-md bg-zinc-900 px-3 py-1.5 text-xs leading-5 text-white">{message.text}</div>
+                : <div key={index} className="max-w-[92%] self-start border-l-2 border-emerald-300 bg-emerald-50 px-3 py-2 text-xs leading-5 text-zinc-700">
+                    {message.echo && <p className="font-medium">{message.echo}</p>}
+                    <p>{message.text}</p>
+                    {message.confirm && index === chatMessages.length - 1 && !chatBusy &&
+                      <button type="button" onClick={() => void sendChat(true, message.pendingUtterance)} className="mt-2 bg-zinc-900 px-3 py-1.5 text-xs text-white">确认执行</button>}
+                  </div>)}
+            </div>}
             <div className="mt-2 flex gap-2">
               <input className={inputClass(false)} value={chatUtterance} onChange={event => setChatUtterance(event.target.value)}
-                placeholder="例如：太贵了、还是上一版好" onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void sendChat(); } }} />
-              <button type="button" onClick={() => void sendChat()} className="shrink-0 bg-zinc-900 px-3 text-xs font-medium text-white">发送</button>
+                placeholder="例如：太贵了、还是上一版好" disabled={chatBusy} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); void sendChat(); } }} />
+              <button type="button" onClick={() => void sendChat()} disabled={chatBusy} className="shrink-0 bg-zinc-900 px-3 text-xs font-medium text-white disabled:opacity-40">{chatBusy ? "发送中" : "发送"}</button>
             </div>
-            {chatReply && <div className="mt-3 border-l-2 border-emerald-300 bg-emerald-50 px-3 py-2 text-xs leading-5 text-zinc-700">
-              {chatReply.echo && <p className="font-medium">{chatReply.echo}</p>}
-              <p>{chatReply.text}</p>
-              {chatReply.confirm && <button type="button" onClick={() => void sendChat(true)} className="mt-2 bg-zinc-900 px-3 py-1.5 text-xs text-white">确认执行</button>}
-            </div>}
           </div>}
         </aside>
 

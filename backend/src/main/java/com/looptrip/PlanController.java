@@ -116,18 +116,14 @@ public class PlanController {
             return new PlanningChatResponse(PlanningIntentAction.UNKNOWN, Map.of(), "", PlanningChatDecision.CLARIFICATION_REQUIRED, "没有待确认的修改，请重新描述你的需求。", null);
         PlanningIntent intent = request != null && request.confirmed() && session.pendingIntent() != null
                 ? session.pendingIntent() : chatService.recognize(utterance, session);
-        if (request != null && request.confirmed() && session.pendingIntent() != null) {
-            PlanningIntent pending = session.pendingIntent();
-            intent = new PlanningIntent(pending.action(), pending.slots(), pending.echo(), utterance);
-        }
         sessions.publish(session, new PlanningSessionStore.PublicEvent(0, PlanningEventType.INTENT_RECOGNIZED,
                 intent.echo(), Map.of("action", intent.action().name(), "slots", intent.slots(), "echo", intent.echo())));
         PlanningIntentGate.Result gate = intentGate.decide(intent, request != null && request.confirmed(), session);
         if (gate.decision() == PlanningChatDecision.UNRECOGNIZED || gate.decision() == PlanningChatDecision.CLARIFICATION_REQUIRED)
             return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), gate.decision(), gate.text(), null);
-        if (intent.action() == PlanningIntentAction.ASK_QUESTION) return chatService.question(intent, session);
-        if (intent.action() == PlanningIntentAction.NEW_SESSION)
+        if (!intent.action().dispatchesOperation())
             return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), PlanningChatDecision.NEW_SESSION_SUGGESTED, "请确认后用新行程开始规划。", null);
+        if (intent.action() == PlanningIntentAction.ASK_QUESTION) return chatService.question(intent, session);
         if (intent.action() == PlanningIntentAction.ROLLBACK) {
             int version = ((Number) intent.slots().getOrDefault("rollbackVersion", Math.max(0, session.currentVersion() - 1))).intValue();
             if (version <= 0) return new PlanningChatResponse(intent.action(), intent.slots(), intent.echo(), PlanningChatDecision.CLARIFICATION_REQUIRED, "当前没有可回滚的上一版方案。", null);
