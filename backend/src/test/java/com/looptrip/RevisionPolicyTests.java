@@ -36,6 +36,22 @@ class RevisionPolicyTests {
     }
 
     @Test
+    void rejectionReasonsAreTailoredPerFieldAndNeverIdentical() {
+        RevisionDecision destination = policy.apply(current, new RevisionRequest(
+                null, null, null, null, null, "苏州", null, null));
+        RevisionDecision date = policy.apply(current, new RevisionRequest(
+                null, null, null, null, null, null, LocalDate.of(2026, 10, 2), null));
+        RevisionDecision days = policy.apply(current, new RevisionRequest(
+                null, null, null, null, null, null, null, 4));
+        RevisionDecision mustVisit = policy.apply(current, new RevisionRequest(
+                null, null, null, null, List.of("西湖"), null, null, null));
+
+        List<String> reasons = List.of(destination.reason(), date.reason(), days.reason(), mustVisit.reason());
+        assertThat(reasons).allSatisfy(reason -> assertThat(reason).isNotBlank());
+        assertThat(java.util.Set.copyOf(reasons)).hasSize(4);
+    }
+
+    @Test
     void rejectsRemovingOrReplacingMustVisitItems() {
         RevisionDecision removed = policy.apply(current, new RevisionRequest(
                 null, null, null, null, List.of("西湖"), null, null, null));

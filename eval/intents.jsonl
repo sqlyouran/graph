@@ -1,0 +1,50 @@
+{"id": 1, "utterance": "把预算调整到3500", "action": "REVISE_BUDGET", "slots": {"budget": 3500}, "exit": "CONFIRM_REQUIRED"}
+{"id": 2, "utterance": "预算改成4000块", "action": "REVISE_BUDGET", "slots": {"budget": 4000}, "exit": "CONFIRM_REQUIRED"}
+{"id": 3, "utterance": "总预算提到2800元吧", "action": "REVISE_BUDGET", "slots": {"budget": 2800}, "exit": "CONFIRM_REQUIRED"}
+{"id": 4, "utterance": "酒店限价改到500", "action": "REVISE_HOTEL_PRICE", "slots": {"maxHotelPrice": 500}, "exit": "CONFIRM_REQUIRED"}
+{"id": 5, "utterance": "酒店每晚最多600元", "action": "REVISE_HOTEL_PRICE", "slots": {"maxHotelPrice": 600}, "exit": "CONFIRM_REQUIRED"}
+{"id": 6, "utterance": "住宿标准降到450一晚", "action": "REVISE_HOTEL_PRICE", "slots": {"maxHotelPrice": 450}, "exit": "CONFIRM_REQUIRED"}
+{"id": 7, "utterance": "把雷峰塔加进必去景点", "action": "ADD_MUST_VISIT", "slots": {"mustVisit": ["雷峰塔"]}, "exit": "CONFIRM_REQUIRED"}
+{"id": 8, "utterance": "还要去西溪湿地", "action": "ADD_MUST_VISIT", "slots": {"mustVisit": ["西溪湿地"]}, "exit": "CONFIRM_REQUIRED"}
+{"id": 9, "utterance": "必去清单里加上灵隐寺", "action": "ADD_MUST_VISIT", "slots": {"mustVisit": ["灵隐寺"]}, "exit": "CONFIRM_REQUIRED"}
+{"id": 10, "utterance": "行程节奏放慢一点", "action": "ADJUST_PACE", "slots": {"preferences": "节奏放慢"}, "exit": "CONFIRM_REQUIRED"}
+{"id": 11, "utterance": "每天少安排一个景点，别太赶", "action": "ADJUST_PACE", "slots": {"preferences": "每天少一个景点"}, "exit": "CONFIRM_REQUIRED"}
+{"id": 12, "utterance": "改成休闲一点的玩法", "action": "ADJUST_PACE", "slots": {"preferences": "休闲"}, "exit": "CONFIRM_REQUIRED"}
+{"id": 13, "utterance": "取消这次规划", "action": "CANCEL", "slots": {}, "exit": "CONFIRM_REQUIRED"}
+{"id": 14, "utterance": "不做了，取消吧", "action": "CANCEL", "slots": {}, "exit": "CONFIRM_REQUIRED"}
+{"id": 15, "utterance": "停下别规划了", "action": "CANCEL", "slots": {}, "exit": "CONFIRM_REQUIRED"}
+{"id": 16, "utterance": "回滚到上一版", "action": "ROLLBACK", "slots": {}, "exit": "EXECUTED"}
+{"id": 17, "utterance": "还是恢复上一版吧", "action": "ROLLBACK", "slots": {}, "exit": "EXECUTED"}
+{"id": 18, "utterance": "回到第1个版本", "action": "ROLLBACK", "slots": {"rollbackVersion": 1}, "exit": "EXECUTED"}
+{"id": 19, "utterance": "改去南京重新规划", "action": "NEW_SESSION", "slots": {"destination": "南京"}, "exit": "EXECUTED"}
+{"id": 20, "utterance": "我不去杭州了，换成苏州", "action": "NEW_SESSION", "slots": {"destination": "苏州"}, "exit": "EXECUTED"}
+{"id": 21, "utterance": "目的地改成上海吧", "action": "NEW_SESSION", "slots": {"destination": "上海"}, "exit": "EXECUTED"}
+{"id": 22, "utterance": "雷峰塔几点关门", "action": "ASK_QUESTION", "slots": {"question": "雷峰塔几点关门"}, "exit": "EXECUTED"}
+{"id": 23, "utterance": "灵隐寺的门票多少钱", "action": "ASK_QUESTION", "slots": {"question": "灵隐寺门票价格"}, "exit": "EXECUTED"}
+{"id": 24, "utterance": "杭州十月一日天气怎么样", "action": "ASK_QUESTION", "slots": {"question": "杭州10月1日天气"}, "exit": "EXECUTED"}
+{"id": 25, "utterance": "太贵了", "action": "REVISE_BUDGET", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 26, "utterance": "能不能便宜点", "action": "REVISE_BUDGET", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 27, "utterance": "整体开销能不能压缩一下", "action": "REVISE_BUDGET", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 28, "utterance": "酒店太贵了", "action": "REVISE_HOTEL_PRICE", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 29, "utterance": "住宿能不能省一点", "action": "REVISE_HOTEL_PRICE", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 30, "utterance": "住的地方便宜点", "action": "REVISE_HOTEL_PRICE", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 31, "utterance": "再加点景点", "action": "ADD_MUST_VISIT", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 32, "utterance": "能不能住民宿", "action": "UNKNOWN", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 33, "utterance": "再便宜点但别太差", "action": "REVISE_BUDGET", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 34, "utterance": "第二天太赶而且太贵", "action": "ADJUST_PACE", "slots": {"preferences": "第二天放慢"}, "exit": "CONFIRM_REQUIRED"}
+{"id": 35, "utterance": "把酒店换成五星的", "action": "UNKNOWN", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 36, "utterance": "便宜100块就行", "action": "REVISE_BUDGET", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 37, "utterance": "加两个必去的地方", "action": "ADD_MUST_VISIT", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 38, "utterance": "换个方案重来", "action": "NEW_SESSION", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 39, "utterance": "把西湖从必去里去掉", "action": "UNKNOWN", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 40, "utterance": "预算翻倍", "action": "UNKNOWN", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 41, "utterance": "把第二天的行程挪到第三天", "action": "UNKNOWN", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 42, "utterance": "酒店限价400，其他都保持不变", "action": "REVISE_HOTEL_PRICE", "slots": {"maxHotelPrice": 400}, "exit": "CONFIRM_REQUIRED"}
+{"id": 43, "utterance": "行程保持现在这样就好", "action": "UNKNOWN", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 44, "utterance": "酒店换成离西湖近一点的", "action": "ADJUST_PACE", "slots": {"preferences": "酒店离西湖近"}, "exit": "CONFIRM_REQUIRED"}
+{"id": 45, "utterance": "西湖要门票吗", "action": "ASK_QUESTION", "slots": {"question": "西湖是否要门票"}, "exit": "EXECUTED"}
+{"id": 46, "utterance": "附近有什么好吃的推荐", "action": "ASK_QUESTION", "slots": {"question": "附近美食推荐"}, "exit": "EXECUTED"}
+{"id": 47, "utterance": "你是谁", "action": "UNKNOWN", "slots": {}, "exit": "UNRECOGNIZED"}
+{"id": 48, "utterance": "帮我订一张明天去北京的机票", "action": "NEW_SESSION", "slots": {}, "exit": "CLARIFICATION_REQUIRED"}
+{"id": 49, "utterance": "哈哈哈哈", "action": "UNKNOWN", "slots": {}, "exit": "UNRECOGNIZED"}
+{"id": 50, "utterance": "帮我写一首关于西湖的诗", "action": "UNKNOWN", "slots": {}, "exit": "UNRECOGNIZED"}
