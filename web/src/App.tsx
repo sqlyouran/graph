@@ -1289,6 +1289,34 @@ function eventBadgeClass(type: string) {
   return "text-zinc-700";
 }
 
+function ReviewProblems({ details }: { details: Record<string, unknown> }) {
+  const problems = Array.isArray(details.problems) ? details.problems as string[] : [];
+  return (
+    <div className="mt-2 border-l-2 border-sky-200 pl-3 text-[11px] leading-5 text-zinc-600">
+      <p className="font-medium text-sky-700">problems（{problems.length} 条）</p>
+      {problems.length === 0
+        ? <p className="text-zinc-500">本轮验收未挑出问题</p>
+        : problems.map((item, index) => <p key={index}>· {item}</p>)}
+    </div>
+  );
+}
+
+function RevisionDiff({ details }: { details: Record<string, unknown> }) {
+  const diff = (details.requestDiff ?? {}) as Record<string, unknown>;
+  const entries = Object.entries(diff);
+  return (
+    <div className="mt-2 border-l-2 border-violet-200 pl-3 text-[11px] leading-5 text-zinc-600">
+      <p className="font-medium text-violet-700">requestDiff</p>
+      {entries.length === 0
+        ? <p className="text-zinc-500">没有请求字段变化</p>
+        : entries.map(([field, value]) => {
+            const change = value as Record<string, unknown>;
+            return <p key={field}><span className="text-zinc-400">{field}：</span>{String(change.before ?? "")} → {String(change.after ?? "")}</p>;
+          })}
+    </div>
+  );
+}
+
 function EventStreamDrawer({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
   const [events, setEvents] = useState<LiveEvent[]>([]);
   const [filter, setFilter] = useState("");
@@ -1350,7 +1378,7 @@ function EventStreamDrawer({ sessionId, onClose }: { sessionId: string; onClose:
           <p className="text-xs text-zinc-500">{events.length === 0 ? "正在连接事件流…" : "没有匹配的事件"}</p>
         )}
         {shown.map((event, index) => (
-          <div key={`${event.round}-${event.type}-${index}`} className="mb-2 border-l-2 border-emerald-300 pl-3">
+          <div key={`${event.round}-${event.type}-${index}`} className="mb-3 border-l-2 border-emerald-300 pl-3">
             <button
               type="button"
               onClick={() => setExpanded(expanded === index ? null : index)}
@@ -1359,8 +1387,14 @@ function EventStreamDrawer({ sessionId, onClose }: { sessionId: string; onClose:
               <span className="font-mono text-[10px] tabular-nums text-zinc-400">{String(index + 1).padStart(2, "0")}</span>
               <span className={`text-[11px] font-semibold ${eventBadgeClass(event.type)}`}>{event.type}</span>
               <span className="text-[10px] text-zinc-400">{event.round > 0 ? `第 ${event.round} 轮` : "会话级"}</span>
+              <span className="ml-auto shrink-0 text-[10px] text-zinc-400 underline decoration-zinc-300 underline-offset-2">
+                {expanded === index ? "收起原始 details" : "展开原始 details"}
+              </span>
             </button>
             <p className="mt-0.5 text-xs leading-5 text-zinc-600">{event.message}</p>
+            <EventDetails event={event} />
+            {event.type === "REVIEW_COMPLETED" && <ReviewProblems details={event.details} />}
+            {event.type === "REVISION_STARTED" && <RevisionDiff details={event.details} />}
             {expanded === index && (
               <pre className="mt-1 max-h-56 overflow-auto bg-zinc-50 p-2 text-[10px] leading-4 text-zinc-600">
                 {JSON.stringify(event.details, null, 2)}
@@ -1370,7 +1404,7 @@ function EventStreamDrawer({ sessionId, onClose }: { sessionId: string; onClose:
         ))}
       </div>
       <div className="border-t border-zinc-100 px-4 py-2 text-[11px] leading-4 text-zinc-500">
-        会话结束后打开会回放全部历史事件；运行中打开则实时追加。点击事件行展开原始 details。
+        关键字段（problems、constraintResults 未过项、requestDiff、偏好决策）默认展开；点事件行可再看原始 details JSON。会话结束后打开回放全部历史，运行中打开实时追加。
       </div>
     </div>
   );
