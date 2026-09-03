@@ -48,7 +48,7 @@ class PlanChatServiceTests {
     }
 
     @Test
-    void revisionPromptContainsAllFourRequiredSections() {
+    void revisionPromptSendsStructuredSummaryAndKeepsAllFeedback() {
         ArgumentCaptor<String> userPrompt = ArgumentCaptor.forClass(String.class);
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);
@@ -64,17 +64,21 @@ class PlanChatServiceTests {
 
         assertThat(userPrompt.getValue())
                 .contains("【原始需求】", "从上海出发，前往杭州")
-                .contains("【上一版完整 TripPlan】", "\"destination\":\"杭州\"")
+                .contains("【上一版摘要】", "destination=杭州", "days=3",
+                        "outboundFlight=MU5211", "returnFlight=MU5212",
+                        "湖滨课程酒店", "西湖风景名胜区")
+                .doesNotContain("【上一版完整 TripPlan】", "\"destination\":\"杭州\"", "dailyPlans")
                 .contains("【上一轮全部问题】", "缺少第 3 天安排", "缺少住宿安排")
                 .contains("【修订要求】", "保留已合格部分", "完整修订版")
-                .contains("【上一轮全部问题】\n缺少第 3 天安排\n缺少住宿安排\n\n【修订要求】")
-                .doesNotContain("- 缺少第 3 天安排");
+                .contains("【本轮任务】", "预算 3000 元");
         assertThat(userPrompt.getValue().indexOf("【原始需求】"))
-                .isLessThan(userPrompt.getValue().indexOf("【上一版完整 TripPlan】"));
-        assertThat(userPrompt.getValue().indexOf("【上一版完整 TripPlan】"))
                 .isLessThan(userPrompt.getValue().indexOf("【上一轮全部问题】"));
         assertThat(userPrompt.getValue().indexOf("【上一轮全部问题】"))
                 .isLessThan(userPrompt.getValue().indexOf("【修订要求】"));
+        assertThat(userPrompt.getValue().indexOf("【修订要求】"))
+                .isLessThan(userPrompt.getValue().indexOf("【上一版摘要】"));
+        assertThat(userPrompt.getValue().indexOf("【上一版摘要】"))
+                .isLessThan(userPrompt.getValue().indexOf("【本轮任务】"));
     }
 
     @Test

@@ -11,6 +11,7 @@ class PlanningArchitectureTests {
         String source = Files.readString(Path.of("src/main/java/com/looptrip/TravelPlanningEngine.java"));
 
         assertThat(source).contains("plan(PlanRequest request, PlanningSeed seed)");
-        assertThat(source).doesNotContain("PlanningSessionStore", "PlanningSessionContext", "PlanningVersion");
+        assertThat(source).doesNotContain("PlanningSessionStore", "PlanningSessionContext", "PlanningVersion",
+                "ContextAssembler", "PromptDumper", "UserProfile");
     }
 }

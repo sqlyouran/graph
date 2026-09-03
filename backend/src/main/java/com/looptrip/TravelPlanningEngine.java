@@ -243,7 +243,10 @@ public class TravelPlanningEngine {
     }
 
     private long estimateTokens(PlanGenerationInput input, PlanGenerationResult result) {
-        int characters = PlanChatService.buildPrompt(input).length();
+        // 总账护栏只关心文本量级：用请求 + 返工意见 + 产出物做代理。
+        // 第 8-2 节起 Engine 不再引用 PlanChatService 的 prompt 拼装（架构边界见 PlanningArchitectureTests）。
+        int characters = String.valueOf(input.originalRequest()).length()
+                + input.feedbackProblems().stream().mapToInt(String::length).sum();
         if (result.plan() != null) characters += result.plan().toString().length();
         characters += result.problems().stream().mapToInt(String::length).sum();
         return (characters + 3L) / 4L;

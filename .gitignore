@@ -32,11 +32,15 @@ application-local.yml
 application-local.yaml
 
 # Logs, reports, and temporary files
+# logs/ 同时盖住 PromptDumper 快照目录 logs/prompts/（含用户请求，不进仓库）
 *.log
 logs/
 *.tmp
 *.temp
 .DS_Store
+
+# Local planning session traces (runtime output, 本地 trace 信息，不进仓库)
+backend/data/planning-sessions/
 
 # Local scripts
 script/
