@@ -42,5 +42,8 @@ logs/
 # Local planning session traces (runtime output, 本地 trace 信息，不进仓库)
 backend/data/planning-sessions/
 
+# 用户画像（跨会话偏好）是个人数据，不是系统缓存，绝不进仓库
+backend/data/profiles/
+
 # Local scripts
 script/

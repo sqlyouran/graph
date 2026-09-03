@@ -26,7 +26,7 @@ public class PlanningSessionStore {
         public PublicEvent { details = details == null ? Map.of() : Map.copyOf(details); }
     }
 
-    private record StoredSession(String id, PlanningSessionState state, PlanningTerminalState terminalState,
+    private record StoredSession(String id, String userId, PlanningSessionState state, PlanningTerminalState terminalState,
             PlanRequest request, PlanResponse response, int currentVersion, Instant updatedAt,
             List<PublicEvent> events, List<PlanningVersion> versions, boolean cancellationRequested) {}
 
@@ -55,6 +55,10 @@ public class PlanningSessionStore {
     }
 
     public synchronized PlanningSession create(PlanRequest request) {
+        return create(request, null);
+    }
+
+    public synchronized PlanningSession create(PlanRequest request, String userId) {
         evictExpired();
         long live = sessions.values().stream().filter(item -> item.state() != PlanningSessionState.CLOSED).count();
         if (live >= properties.maxLive()) {
@@ -62,7 +66,7 @@ public class PlanningSessionStore {
                     "当前已有 " + live + " 个规划会话正在处理，达到上限 " + properties.maxLive(),
                     "请等待已有会话结束后重试");
         }
-        PlanningSession session = new PlanningSession(UUID.randomUUID().toString(), request);
+        PlanningSession session = new PlanningSession(UUID.randomUUID().toString(), request, userId);
         sessions.put(session.id(), session);
         persist(session);
         return session;
@@ -128,6 +132,16 @@ public class PlanningSessionStore {
         for (BlockingQueue<PublicEvent> queue : session.listeners()) queue.offer(event);
     }
 
+    /** 偏好确认这类跨会话事件：广播给该用户还活着的会话，前端时间线才看得到。 */
+    public void publishToUser(String userId, PublicEvent event) {
+        if (userId == null) return;
+        sessions.values().stream()
+                .filter(session -> userId.equals(session.userId()))
+                .filter(session -> session.state() != PlanningSessionState.CLOSED
+                        || session.updatedAt().isAfter(clock.instant().minus(properties.ttl())))
+                .forEach(session -> publish(session, event));
+    }
+
     public BlockingQueue<PublicEvent> subscribe(PlanningSession session) {
         BlockingQueue<PublicEvent> queue = new LinkedBlockingQueue<>();
         queue.addAll(session.events());
@@ -144,7 +158,7 @@ public class PlanningSessionStore {
             Files.createDirectories(properties.storagePath());
             Path target = path(session.id());
             Path temporary = Files.createTempFile(properties.storagePath(), session.id(), ".tmp");
-            StoredSession stored = new StoredSession(session.id(), session.state(), session.terminalState(),
+            StoredSession stored = new StoredSession(session.id(), session.userId(), session.state(), session.terminalState(),
                     session.request(), session.response(), session.currentVersion(), session.updatedAt(),
                     List.copyOf(session.events()), session.versions(), session.cancellationRequested());
             objectMapper.writeValue(temporary.toFile(), stored);
@@ -177,7 +191,7 @@ public class PlanningSessionStore {
     private void restoreFile(Path file) {
         try {
             StoredSession stored = objectMapper.readValue(file.toFile(), StoredSession.class);
-            PlanningSession session = new PlanningSession(stored.id(), stored.request());
+            PlanningSession session = new PlanningSession(stored.id(), stored.request(), stored.userId());
             session.events().addAll(stored.events() == null ? List.of() : stored.events());
             List<PlanningVersion> normalized = normalizeRuns(stored.versions(), stored.currentVersion(), stored.response());
             session.mutableVersions().addAll(normalized);

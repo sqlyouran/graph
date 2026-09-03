@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.util.Assert;
 
 @SpringBootApplication
-@EnableConfigurationProperties({ConstraintProperties.class, ContextProperties.class})
+@EnableConfigurationProperties({ConstraintProperties.class, ContextProperties.class, PreferenceProperties.class})
 public class LoopTripApplication {
 
     public static void main(String[] args) {

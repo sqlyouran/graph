@@ -20,7 +20,8 @@ public class SsePlanningEventSink implements PlanningEventSink {
                 "selectedHotels","selectedAttractions","contractProblemCount","hardFailureCount",
                 "constraintResults","version","bestVersion","hasBestPlan","requestDiff",
                 "action","slots","echo","decision",
-                "includedSections","droppedSections","estimatedTokens","usableBudget")) {
+                "includedSections","droppedSections","estimatedTokens","usableBudget",
+                                "candidateId","field","sessionCount","condition","content","accepted","forgetReason","decision")) {
             if(details.containsKey(k)) safe.put(k, details.get(k));
         }
         if(type==PlanningEventType.REVIEW_COMPLETED && details.containsKey("problems")) {

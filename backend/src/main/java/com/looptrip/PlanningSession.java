@@ -20,15 +20,22 @@ public final class PlanningSession {
     private volatile int currentVersion;
     private volatile Instant updatedAt;
     private volatile PlanningIntent pendingIntent;
+    private volatile String userId;
 
     PlanningSession(String id, PlanRequest request) {
+        this(id, request, null);
+    }
+
+    PlanningSession(String id, PlanRequest request, String userId) {
         this.id = id;
         this.request = request;
+        this.userId = userId;
         this.state = PlanningSessionState.CREATED;
         this.updatedAt = Instant.now();
     }
 
     public String id() { return id; }
+    public String userId() { return userId; }
     public List<PlanningSessionStore.PublicEvent> events() { return events; }
     List<BlockingQueue<PlanningSessionStore.PublicEvent>> listeners() { return listeners; }
     public List<PlanningVersion> versions() { return List.copyOf(versions); }

@@ -12,6 +12,6 @@ class PlanningArchitectureTests {
 
         assertThat(source).contains("plan(PlanRequest request, PlanningSeed seed)");
         assertThat(source).doesNotContain("PlanningSessionStore", "PlanningSessionContext", "PlanningVersion",
-                "ContextAssembler", "PromptDumper", "UserProfile");
+                "ContextAssembler", "PromptDumper", "UserProfile", "ProfileRepository", "PreferenceMemoryService");
     }
 }

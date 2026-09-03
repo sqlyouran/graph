@@ -1,10 +1,12 @@
 package com.looptrip;
 
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 
 /**
- * 最小用户画像：本节生产流程一律传 empty()，真实的读取、学习与晋升在第三节接入。
- * relevantPreferences 只做两种基础过滤：条件不匹配的不进来，本次请求已显式给出的字段不被画像覆盖。
+ * 用户画像：确认过的偏好集合。召回 = 条件匹配 + 条件成立 + 未被本次请求覆盖，
+ * 再按置信度、新鲜度排序取前 maxRecall 条——记忆不是越多越好，是越准越好。
  */
 public record UserProfile(String userId, List<Preference> preferences) {
 
@@ -17,9 +19,19 @@ public record UserProfile(String userId, List<Preference> preferences) {
     }
 
     public List<Preference> relevantPreferences(PlanRequest request) {
+        return relevantPreferences(request, 8);
+    }
+
+    public List<Preference> relevantPreferences(PlanRequest request, int maxRecall) {
         return preferences.stream()
                 .filter(preference -> preference.appliesTo(request))
+                .filter(preference -> preference.conditionHolds(request))
                 .filter(preference -> !preference.isOverriddenBy(request))
+                .sorted(Comparator.comparingDouble(Preference::confidence).reversed()
+                        .thenComparing(preference -> preference.lastUsedAt() == null
+                                ? Instant.EPOCH : preference.lastUsedAt(), Comparator.reverseOrder())
+                        .thenComparing(Preference::text))
+                .limit(maxRecall)
                 .toList();
     }
 }

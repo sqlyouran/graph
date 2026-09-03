@@ -13,6 +13,8 @@ import ReactMarkdown from "react-markdown";
 
 export const USE_MOCK = false;
 
+const COURSE_USER_ID = "course-demo-user";
+
 const MOCK_DELAY_MS = 1_500;
 const MOCK_MODEL = "qwen3.8-flash";
 const MOCK_TRIP = `## 杭州三日轻旅行
@@ -154,7 +156,64 @@ function EventDetails({ event }: { event: PlanningEvent | LiveEvent }) {
         ))}
       </div>
     )}
+    {event.type === "PREFERENCE_LEARNED" && details.candidateId != null
+      && String(details.decision ?? "").startsWith("CONFIRM") && <PreferenceCard details={details} />}
+    {event.type === "PREFERENCE_CONFIRMED" && (
+      <div className="mt-2 border-l-2 border-emerald-200 pl-3 text-[11px] leading-5 text-zinc-600">
+        <p>{details.accepted ? "已写入用户画像" : "已放弃该候选"}：{String(details.content ?? "")}</p>
+      </div>
+    )}
+    {event.type === "PREFERENCE_FORGOTTEN" && (
+      <div className="mt-2 border-l-2 border-zinc-300 pl-3 text-[11px] leading-5 text-zinc-500">
+        <p>遗忘原因：{String(details.forgetReason ?? "")}</p>
+      </div>
+    )}
+    {event.type === "CONTEXT_ASSEMBLED" && (
+      <div className="mt-2 border-l-2 border-sky-200 pl-3 text-[11px] leading-5 text-zinc-600">
+        <p><span className="text-zinc-400">装配段落：</span>{Array.isArray(details.includedSections) ? (details.includedSections as string[]).join("、") : "-"}</p>
+        <p><span className="text-zinc-400">丢弃段落：</span>{Array.isArray(details.droppedSections) && details.droppedSections.length > 0 ? (details.droppedSections as string[]).join("、") : "无"}</p>
+        <p><span className="text-zinc-400">估算 token：</span>{String(details.estimatedTokens ?? "-")} / 可用预算 {String(details.usableBudget ?? "-")}</p>
+      </div>
+    )}
   </>;
+}
+
+function PreferenceCard({ details }: { details: Record<string, unknown> }) {
+  const [state, setState] = useState<"pending" | "saving" | "saved" | "dismissed" | "error">("pending");
+  const candidateId = String(details.candidateId);
+  const condition = details.condition ? String(details.condition) : "";
+  async function decide(accepted: boolean) {
+    setState("saving");
+    try {
+      const response = await fetch(
+        `/api/profiles/${COURSE_USER_ID}/confirm?candidateId=${encodeURIComponent(candidateId)}&accepted=${accepted}`,
+        { method: "POST" });
+      if (!response.ok) throw new Error(String(response.status));
+      setState(accepted ? "saved" : "dismissed");
+    } catch {
+      setState("error");
+    }
+  }
+  return (
+    <div className="mt-2 rounded-md border border-violet-200 bg-violet-50 p-3 text-[11px] leading-5">
+      <p className="font-semibold text-violet-800">发现偏好候选（{String(details.sessionCount ?? "?")} 个会话重复出现）</p>
+      <p className="mt-1 text-zinc-700">{condition ? `当${condition}时，` : ""}{String(details.content ?? "")}</p>
+      {state === "pending" && (
+        <div className="mt-2 flex gap-2">
+          <button className="rounded bg-violet-600 px-3 py-1 text-white hover:bg-violet-700"
+            onClick={() => decide(true)}>记住</button>
+          <button className="rounded border border-zinc-300 bg-white px-3 py-1 text-zinc-600 hover:bg-zinc-50"
+            onClick={() => decide(false)}>不保存</button>
+        </div>
+      )}
+      {state === "saving" && <p className="mt-2 text-zinc-500">正在提交…</p>}
+      {state === "saved" && <p className="mt-2 text-emerald-700">已记住，下次规划会带上这条偏好。</p>}
+      {state === "dismissed" && <p className="mt-2 text-zinc-500">已放弃，这条候选不会写入画像。</p>}
+      {state === "error" && (
+        <p className="mt-2 text-orange-700">提交失败，候选可能已被处理。<button className="underline" onClick={() => setState("pending")}>重试</button></p>
+      )}
+    </div>
+  );
 }
 
 type ConstraintCheckResult = {
@@ -273,7 +332,7 @@ async function requestPlan(values: FormValues, onEvent: (event: LiveEvent) => vo
   try {
     response = await fetch("/api/plan/ask", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-User-Id": COURSE_USER_ID },
       signal: controller.signal,
       body: JSON.stringify({
         origin: values.origin.trim(),
@@ -541,7 +600,7 @@ export function App() {
     let revisionStarted = false;
     try {
       const response = await fetch(`/api/plan/${result.sessionId}/chat`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", "X-User-Id": COURSE_USER_ID },
         body: JSON.stringify({ utterance, confirmed }),
       });
       const payload = await response.json();
@@ -605,7 +664,7 @@ export function App() {
     const generation = ++requestGeneration.current;
     setActionError("");
     const response = await fetch(`/api/plan/${result.sessionId}/revisions`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", "X-User-Id": COURSE_USER_ID },
       body: JSON.stringify({budget:Number(form.budget), maxHotelPrice:Number(form.maxHotelPrice),
         preferences:form.preferences.trim(), maxRounds:Number(form.maxRounds), mustVisit:parseMustVisit(form.mustVisit),
         destination:form.destination.trim(), startDate:form.startDate, days:Number(form.days)}),

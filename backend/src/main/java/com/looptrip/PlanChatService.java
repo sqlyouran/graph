@@ -28,6 +28,8 @@ public class PlanChatService implements PlanGenerator {
     private final ContextAssembler contextAssembler;
     private final ContextProperties contextProperties;
     private final PlanningEventSink eventSink;
+    private final PreferenceMemoryService preferenceMemory;
+    private final PreferenceProperties preferenceProperties;
 
     @Autowired
     public PlanChatService(
@@ -40,7 +42,9 @@ public class PlanChatService implements PlanGenerator {
             PlanningSessionContext sessionContext,
             ContextAssembler contextAssembler,
             ContextProperties contextProperties,
-            PlanningEventSink eventSink) {
+            PlanningEventSink eventSink,
+            PreferenceMemoryService preferenceMemory,
+            PreferenceProperties preferenceProperties) {
         this.chatClient = chatClientBuilder.defaultTools(travelTools).build();
         this.model = model;
         this.clock = clock;
@@ -50,6 +54,8 @@ public class PlanChatService implements PlanGenerator {
         this.contextAssembler = contextAssembler;
         this.contextProperties = contextProperties;
         this.eventSink = eventSink;
+        this.preferenceMemory = preferenceMemory;
+        this.preferenceProperties = preferenceProperties;
     }
 
     PlanChatService(ChatClient.Builder chatClientBuilder, TravelTools travelTools, String model) {
@@ -64,16 +70,28 @@ public class PlanChatService implements PlanGenerator {
     PlanChatService(ChatClient.Builder chatClientBuilder, TravelTools travelTools, String model,
             FactBackedPlanGenerator fallback, PromptDumper promptDumper, PlanningSessionContext sessionContext) {
         this(chatClientBuilder, travelTools, model, Clock.systemUTC(), fallback, promptDumper, sessionContext,
-                new ContextAssembler(), new ContextProperties(6000, 0.15), null);
+                new ContextAssembler(), new ContextProperties(6000, 0.15), null, null, null);
     }
 
     @Override
     public PlanGenerationResult generate(PlanGenerationInput input) {
         long startedAt = clock.millis();
-        PromptContext context = contextAssembler.assemble(input, UserProfile.empty(),
-                contextProperties.maxTokens(), contextProperties.safetyMargin());
+        PlanningSession current = sessionContext == null ? null : sessionContext.current();
+        String userId = current == null ? null : current.userId();
+        UserProfile profile = UserProfile.empty();
+        if (preferenceMemory != null && userId != null) {
+            PreferenceMemoryService.ProfileLoad load = preferenceMemory.profileFor(userId);
+            emitForgotten(load.forgotten());
+            profile = load.profile();
+        }
+        int maxRecall = preferenceProperties == null ? 8 : preferenceProperties.maxRecall();
+        PromptContext context = contextAssembler.assemble(input, profile,
+                contextProperties.maxTokens(), contextProperties.safetyMargin(), maxRecall);
         emitContextAssembled(context);
         dumpCurrentPrompt(input, context);
+        if (preferenceMemory != null && userId != null && context.includedSections().contains("PROFILE")) {
+            preferenceMemory.markRecalled(userId, input.originalRequest(), maxRecall);
+        }
         ChatClient.CallResponseSpec response;
         try {
             response = chatClient.prompt()
@@ -155,5 +173,15 @@ public class PlanChatService implements PlanGenerator {
                         .toList(),
                 "estimatedTokens", context.estimatedTokens(),
                 "usableBudget", context.usableBudget()));
+    }
+
+    private void emitForgotten(java.util.List<PreferenceMemoryService.Forgotten> forgotten) {
+        if (eventSink == null || forgotten == null) return;
+        for (PreferenceMemoryService.Forgotten entry : forgotten) {
+            eventSink.emit(PlanningEventType.PREFERENCE_FORGOTTEN, "偏好已遗忘：" + entry.content(), Map.of(
+                    "field", entry.field(),
+                    "content", entry.content(),
+                    "forgetReason", entry.reason()));
+        }
     }
 }

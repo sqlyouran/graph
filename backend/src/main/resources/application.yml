@@ -42,5 +42,13 @@ looptrip:
       meal-window-start: "11:00"
       meal-window-end: "14:00"
   context:
-    max-tokens: 400
+    max-tokens: 6000
     safety-margin: 0.15
+  preference:
+    storage-path: data/profiles
+    default-user: course-demo-user
+    min-sessions: 3
+    decay-days: 90
+    decay-drop: 0.25
+    delete-threshold: 0.3
+    max-recall: 8

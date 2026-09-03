@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,17 +29,20 @@ public class PlanController {
     private final RevisionPolicy revisionPolicy;
     private final Executor executor;
     private final PlanningChatServiceFacade chatService;
+    private final PreferenceMemoryService preferenceMemory;
+    private final PreferenceProperties preferenceProperties;
     private final PlanningIntentGate intentGate = new PlanningIntentGate();
 
     public PlanController(TravelPlanningEngine planningEngine) {
-        this(planningEngine, null, null, null, null, Runnable::run, null);
+        this(planningEngine, null, null, null, null, Runnable::run, null, null, null);
     }
 
     @Autowired
     public PlanController(TravelPlanningEngine planningEngine, PlanningSessionStore sessions,
             SsePlanningEventSink sse, PlanningSessionContext sessionContext,
             RevisionPolicy revisionPolicy, Executor planningSessionExecutor,
-            PlanningChatServiceFacade chatService) {
+            PlanningChatServiceFacade chatService,
+            PreferenceMemoryService preferenceMemory, PreferenceProperties preferenceProperties) {
         this.planningEngine = planningEngine;
         this.sessions = sessions;
         this.sse = sse;
@@ -46,20 +50,38 @@ public class PlanController {
         this.revisionPolicy = revisionPolicy;
         this.executor = planningSessionExecutor;
         this.chatService = chatService;
+        this.preferenceMemory = preferenceMemory;
+        this.preferenceProperties = preferenceProperties;
     }
 
     public PlanController(TravelPlanningEngine engine, PlanningSessionStore sessions, SsePlanningEventSink sse,
             PlanningSessionContext context, RevisionPolicy policy, Executor executor) {
-        this(engine, sessions, sse, context, policy, executor, null);
+        this(engine, sessions, sse, context, policy, executor, null, null, null);
+    }
+
+    public PlanController(TravelPlanningEngine engine, PlanningSessionStore sessions, SsePlanningEventSink sse,
+            PlanningSessionContext context, RevisionPolicy policy, Executor executor,
+            PlanningChatServiceFacade chatService) {
+        this(engine, sessions, sse, context, policy, executor, chatService, null, null);
+    }
+
+    public Object ask(PlanRequest request) {
+        return ask(request, null);
     }
 
     @PostMapping("/ask")
-    public Object ask(@RequestBody PlanRequest request) {
+    public Object ask(@RequestBody PlanRequest request,
+            @RequestHeader(name = "X-User-Id", required = false) String userId) {
         if (sessions == null) return planningEngine.plan(request);
-        PlanningSession session = sessions.create(request);
+        PlanningSession session = sessions.create(request, resolveUserId(userId));
         sessions.start(session, false);
         execute(session, request, PlanningSeed.empty(), Map.of());
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(Map.of("sessionId", session.id()));
+    }
+
+    private String resolveUserId(String header) {
+        if (header != null && !header.isBlank()) return header.trim();
+        return preferenceProperties == null ? "course-demo-user" : preferenceProperties.defaultUser();
     }
 
     @PostMapping("/{id}/cancel")
@@ -94,10 +116,52 @@ public class PlanController {
         sessions.publish(session, new PlanningSessionStore.PublicEvent(0, PlanningEventType.REVISION_STARTED,
                 "续修请求已生效，正在基于版本 " + current.version() + " 继续规划",
                 Map.of("version", current.version(), "requestDiff", decision.diff())));
+        observePreference(session, decision.diff());
         execute(session, decision.request(), seed, decision.diff());
         return ResponseEntity.accepted().body(Map.of("sessionId", id, "state", session.state(),
                 "message", "续修已开始", "basedOnVersion", current.version(),
                 "eventOffset", Math.max(0, session.events().size() - 1)));
+    }
+
+    /**
+     * 续修 diff 是偏好学习的唯一入口：观察→晋升判据→把结果挂到会话事件流上。
+     * 学习失败不能拖垮续修本身，所以整段兜住。
+     */
+    private void observePreference(PlanningSession session, Map<String, Object> diff) {
+        if (preferenceMemory == null || diff == null || diff.isEmpty()) return;
+        try {
+            PreferenceMemoryService.ObservationResult result =
+                    preferenceMemory.observeRevision(session.userId(), session.id(), diff);
+            for (PreferenceMemoryService.Observation observation : result.observations()) {
+                Map<String, Object> details = new java.util.LinkedHashMap<>();
+                details.put("candidateId", observation.candidateId());
+                details.put("field", observation.field());
+                details.put("decision", observation.decision().name());
+                details.put("sessionCount", observation.sessionCount());
+                if (observation.condition() != null) details.put("condition", observation.condition());
+                details.put("content", observation.content());
+                sessions.publish(session, new PlanningSessionStore.PublicEvent(0,
+                        PlanningEventType.PREFERENCE_LEARNED, describe(observation), details));
+            }
+            for (PreferenceMemoryService.Forgotten forgotten : result.forgotten()) {
+                sessions.publish(session, new PlanningSessionStore.PublicEvent(0,
+                        PlanningEventType.PREFERENCE_FORGOTTEN, "偏好已遗忘：" + forgotten.content(),
+                        Map.of("field", forgotten.field(), "content", forgotten.content(),
+                                "forgetReason", forgotten.reason())));
+            }
+        } catch (RuntimeException exception) {
+            sessions.publish(session, new PlanningSessionStore.PublicEvent(0,
+                    PlanningEventType.PREFERENCE_LEARNED, "偏好学习跳过：" + exception.getMessage(), Map.of()));
+        }
+    }
+
+    private String describe(PreferenceMemoryService.Observation observation) {
+        return switch (observation.decision()) {
+            case WAIT -> "观察到重复修改倾向（" + observation.sessionCount() + " 个会话），继续积累";
+            case REJECT -> "修改方向不一致，不纳入偏好候选";
+            case CONFIRM_WITH_CONDITION -> "发现带条件的偏好候选，等待用户确认";
+            case CONFIRM_UNCONDITIONAL -> "发现稳定偏好候选，等待用户确认";
+        };
     }
 
     @PostMapping("/{id}/rollback")
@@ -178,6 +242,7 @@ public class PlanController {
         PlanningSession session = requireSession(id);
         Map<String, Object> snapshot = new java.util.LinkedHashMap<>();
         snapshot.put("sessionId", id);
+        snapshot.put("userId", session.userId());
         snapshot.put("state", session.state());
         snapshot.put("terminalState", session.terminalState());
         snapshot.put("events", session.events());

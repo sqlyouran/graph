@@ -31,6 +31,11 @@ public class ContextAssembler {
 
     public PromptContext assemble(PlanGenerationInput input, UserProfile profile,
             int tokenBudget, double safetyMargin) {
+        return assemble(input, profile, tokenBudget, safetyMargin, 8);
+    }
+
+    public PromptContext assemble(PlanGenerationInput input, UserProfile profile,
+            int tokenBudget, double safetyMargin, int maxRecall) {
         int usableBudget = (int) Math.floor(tokenBudget * (1 - safetyMargin));
         PlanRequest request = input.originalRequest();
 
@@ -39,7 +44,7 @@ public class ContextAssembler {
         String minimalHistory = input.round() == 1 ? "" : minimalHistorySection(input.previousPlan());
         List<Preference> preferences = profile == null
                 ? List.of()
-                : profile.relevantPreferences(request);
+                : profile.relevantPreferences(request, maxRecall);
         String profileBody = preferences.isEmpty()
                 ? PROFILE_PLACEHOLDER
                 : preferences.stream().map(Preference::text).reduce((a, b) -> a + "\n" + b).orElseThrow();
