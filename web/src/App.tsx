@@ -1,4 +1,5 @@
 import {
+  Activity,
   AlertCircle,
   ArrowRight,
   CheckCircle2,
@@ -494,10 +495,12 @@ export function App() {
   const [actionError, setActionError] = useState("");
   const [loadingPreviewVersion, setLoadingPreviewVersion] = useState<number | null>(null);
   const [loadingMode, setLoadingMode] = useState<"new" | "revision">("new");
+  const [streamOpen, setStreamOpen] = useState(false);
   const [chatUtterance, setChatUtterance] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const chatLogRef = useRef<HTMLDivElement>(null);
+  const streamSessionId = activeSessionId || result?.sessionId || "";
   const requestGeneration = useRef(0);
 
   useEffect(() => {
@@ -742,8 +745,22 @@ export function App() {
               <p className="text-xs text-zinc-500">旅行规划工作台</p>
             </div>
           </div>
-          <div className="border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-600" aria-live="polite">
-            {meta ? `Ch${meta.chapter} · ${meta.model}` : metaError ? "Metadata unavailable" : "Loading..."}
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setStreamOpen(open => !open)}
+              disabled={!streamSessionId}
+              aria-label="打开 SSE 事件流"
+              className={`flex items-center gap-2 border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                streamOpen ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+              }`}
+            >
+              <Activity size={14} aria-hidden="true" />
+              事件流
+            </button>
+            <div className="border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-600" aria-live="polite">
+              {meta ? `Ch${meta.chapter} · ${meta.model}` : metaError ? "Metadata unavailable" : "Loading..."}
+            </div>
           </div>
         </div>
       </header>
@@ -936,6 +953,7 @@ export function App() {
           <ProcessView state={viewState} result={result} />
         </aside>
       </div>
+      {streamOpen && streamSessionId && <EventStreamDrawer sessionId={streamSessionId} onClose={() => setStreamOpen(false)} />}
     </main>
   );
 }
@@ -1258,6 +1276,101 @@ function ErrorView({ message, onRetry }: { message: string; onRetry: () => void 
         <button type="button" onClick={onRetry} className="mt-5 border border-zinc-300 bg-white px-4 py-2 text-sm font-medium hover:bg-zinc-50">
           返回重试
         </button>
+      </div>
+    </div>
+  );
+}
+
+function eventBadgeClass(type: string) {
+  if (type === "PREFERENCE_FORGOTTEN") return "text-red-600";
+  if (type === "PREFERENCE_CONFIRMED") return "text-emerald-700";
+  if (type === "PREFERENCE_LEARNED") return "text-amber-600";
+  if (type === "REVIEW_COMPLETED") return "text-sky-700";
+  return "text-zinc-700";
+}
+
+function EventStreamDrawer({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+  const [events, setEvents] = useState<LiveEvent[]>([]);
+  const [filter, setFilter] = useState("");
+  const [expanded, setExpanded] = useState<number | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const stickBottom = useRef(true);
+
+  useEffect(() => {
+    setEvents([]);
+    const source = new EventSource(`/api/plan/${sessionId}/events`);
+    source.onmessage = (message) => {
+      const event = JSON.parse(message.data) as LiveEvent;
+      if (event.type === "HEARTBEAT") return;
+      setEvents(current => addLiveEvent(current, event));
+    };
+    source.onerror = () => source.close();
+    return () => source.close();
+  }, [sessionId]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (el && stickBottom.current) el.scrollTop = el.scrollHeight;
+  }, [events.length]);
+
+  const keyword = filter.trim().toLowerCase();
+  const shown = events.filter(event => !keyword
+    || event.type.toLowerCase().includes(keyword)
+    || event.message.toLowerCase().includes(keyword));
+
+  return (
+    <div className="fixed inset-y-0 right-0 z-40 flex w-[460px] flex-col border-l border-zinc-200 bg-white shadow-2xl" role="dialog" aria-label="SSE 事件流">
+      <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-sm font-semibold">
+            <Activity size={15} className="text-emerald-600" aria-hidden="true" />
+            SSE 事件流
+          </p>
+          <p className="truncate font-mono text-[11px] text-zinc-500">{sessionId}</p>
+        </div>
+        <button type="button" onClick={onClose} className="shrink-0 border border-zinc-200 px-2.5 py-1.5 text-xs text-zinc-600 hover:bg-zinc-100">
+          关闭
+        </button>
+      </div>
+      <div className="flex items-center gap-2 border-b border-zinc-100 px-4 py-2">
+        <input
+          value={filter}
+          onChange={event => setFilter(event.target.value)}
+          placeholder="过滤事件类型或消息，如 REVIEW、PREFERENCE"
+          className="h-8 w-full border border-zinc-200 px-2 text-xs outline-none focus:border-emerald-600"
+        />
+        <span className="shrink-0 text-[11px] tabular-nums text-zinc-500">{shown.length}/{events.length}</span>
+      </div>
+      <div
+        ref={listRef}
+        onScroll={el => { const node = el.currentTarget; stickBottom.current = node.scrollTop + node.clientHeight >= node.scrollHeight - 60; }}
+        className="flex-1 overflow-y-auto px-4 py-3"
+      >
+        {shown.length === 0 && (
+          <p className="text-xs text-zinc-500">{events.length === 0 ? "正在连接事件流…" : "没有匹配的事件"}</p>
+        )}
+        {shown.map((event, index) => (
+          <div key={`${event.round}-${event.type}-${index}`} className="mb-2 border-l-2 border-emerald-300 pl-3">
+            <button
+              type="button"
+              onClick={() => setExpanded(expanded === index ? null : index)}
+              className="flex w-full items-baseline gap-2 text-left"
+            >
+              <span className="font-mono text-[10px] tabular-nums text-zinc-400">{String(index + 1).padStart(2, "0")}</span>
+              <span className={`text-[11px] font-semibold ${eventBadgeClass(event.type)}`}>{event.type}</span>
+              <span className="text-[10px] text-zinc-400">{event.round > 0 ? `第 ${event.round} 轮` : "会话级"}</span>
+            </button>
+            <p className="mt-0.5 text-xs leading-5 text-zinc-600">{event.message}</p>
+            {expanded === index && (
+              <pre className="mt-1 max-h-56 overflow-auto bg-zinc-50 p-2 text-[10px] leading-4 text-zinc-600">
+                {JSON.stringify(event.details, null, 2)}
+              </pre>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-zinc-100 px-4 py-2 text-[11px] leading-4 text-zinc-500">
+        会话结束后打开会回放全部历史事件；运行中打开则实时追加。点击事件行展开原始 details。
       </div>
     </div>
   );

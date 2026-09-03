@@ -1,5 +1,3 @@
-录制时不念，配合 PPT 第 33 页讲解。
-
 # Prompt S：偏好学习与记忆管理
 
 继续在这个仓库里做，不另起工程。先读第七章的 PlanningSession、修改版本、SSE 确认流程，以及上一节的 ContextAssembler 和 UserProfile。
