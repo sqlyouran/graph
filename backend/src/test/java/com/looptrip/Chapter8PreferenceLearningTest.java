@@ -145,6 +145,17 @@ class Chapter8PreferenceLearningTest {
     }
 
     @Test
+    void neverRecalledPreferenceDecaysFromConfirmationDay() {
+        // lastUsedAt 留空 = 还没被召回过：闲置从确认日算起，不能因为没召回到处永生
+        Preference fresh = new Preference("", "preferences", "住宿优先选择民宿", 1.0, null,
+                START, START, null, List.of("s1"), null);
+        repository.save(new ProfileDocument(USER, true, List.of(), List.of(), List.of(fresh)));
+
+        now.set(START.plusSeconds(91L * 24 * 3600));
+        assertThat(service.profileFor(USER).profile().preferences().get(0).confidence()).isEqualTo(0.75);
+    }
+
+    @Test
     void oppositeRevisionDeletesConfirmedPreference() {
         Preference saved = new Preference("", "budget", "budget倾向于上调", 1.0, null,
                 START, START, START, List.of("s1"), 1);

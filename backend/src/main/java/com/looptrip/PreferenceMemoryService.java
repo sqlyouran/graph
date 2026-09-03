@@ -131,8 +131,10 @@ public class PreferenceMemoryService {
         List<Preference> kept = new ArrayList<>();
         boolean changed = false;
         for (Preference preference : document.confirmed()) {
-            long idleDays = preference.lastUsedAt() == null
-                    ? 0 : Duration.between(preference.lastUsedAt(), now).toDays();
+            // 还没被召回过的偏好从确认那天开始算闲置，否则永不过期
+            Instant baseline = preference.lastUsedAt() == null
+                    ? preference.confirmedAt() : preference.lastUsedAt();
+            long idleDays = baseline == null ? 0 : Duration.between(baseline, now).toDays();
             if (idleDays > properties.decayDays()) {
                 double confidence = preference.confidence() - properties.decayDrop();
                 changed = true;
