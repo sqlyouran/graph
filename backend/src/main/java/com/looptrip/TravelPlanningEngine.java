@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Comparator;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -21,6 +23,8 @@ public class TravelPlanningEngine {
     private final LoopGuardrail guardrail;
     private final TechnicalRetryExecutor retryExecutor;
     private final PlanningCancellationSignal cancellationSignal;
+    private final TravelGraphFactory graphFactory;
+    private final ExecutorService toolPool;
 
     @Autowired
     public TravelPlanningEngine(
@@ -31,7 +35,8 @@ public class TravelPlanningEngine {
             TravelPlanPreflight preflight,
             LoopGuardrail guardrail,
             TechnicalRetryExecutor retryExecutor,
-            PlanningCancellationSignal cancellationSignal) {
+            PlanningCancellationSignal cancellationSignal,
+            TravelGraphFactory graphFactory) {
         this.planGenerator = planGenerator;
         this.contractReview = contractReview;
         this.constraintReviewer = constraintReviewer;
@@ -40,19 +45,44 @@ public class TravelPlanningEngine {
         this.guardrail = guardrail;
         this.retryExecutor = retryExecutor;
         this.cancellationSignal = cancellationSignal;
+        this.graphFactory = graphFactory;
+        this.toolPool = newToolPool();
     }
 
     TravelPlanningEngine(PlanGenerator planGenerator, BasicContractReview contractReview,
             TripPlanConstraintReviewer constraintReviewer, PlanningEventSink eventSink,
             TravelPlanPreflight preflight, LoopGuardrail guardrail, TechnicalRetryExecutor retryExecutor) {
         this(planGenerator, contractReview, constraintReviewer, eventSink, preflight, guardrail,
-                retryExecutor, () -> false);
+                retryExecutor, () -> false, null);
+    }
+
+    TravelPlanningEngine(PlanGenerator planGenerator, BasicContractReview contractReview,
+            TripPlanConstraintReviewer constraintReviewer, PlanningEventSink eventSink,
+            TravelPlanPreflight preflight, LoopGuardrail guardrail, TechnicalRetryExecutor retryExecutor,
+            PlanningCancellationSignal cancellationSignal) {
+        this(planGenerator, contractReview, constraintReviewer, eventSink, preflight, guardrail,
+                retryExecutor, cancellationSignal, null);
     }
 
     TravelPlanningEngine(PlanGenerator planGenerator, BasicContractReview contractReview,
             TripPlanConstraintReviewer constraintReviewer, PlanningEventSink eventSink) {
         this(planGenerator, contractReview, constraintReviewer, eventSink, null, null,
-                new TechnicalRetryExecutor(millis -> {}), () -> false);
+                new TechnicalRetryExecutor(millis -> {}), () -> false, null);
+    }
+
+    /** 独立 tool-pool：有界并发 4，事实查询不占用请求线程，也不阻塞 planning 侧。 */
+    private static ExecutorService newToolPool() {
+        java.util.concurrent.atomic.AtomicInteger seq = new java.util.concurrent.atomic.AtomicInteger();
+        return java.util.concurrent.Executors.newFixedThreadPool(4, runnable -> {
+            Thread thread = new Thread(runnable, "tool-pool-" + seq.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        });
+    }
+
+    @jakarta.annotation.PreDestroy
+    void shutdownToolPool() {
+        toolPool.shutdownNow();
     }
 
     public PlanResponse plan(PlanRequest request) {
@@ -63,135 +93,241 @@ public class TravelPlanningEngine {
         validate(request);
         List<PlanningEvent> events = new ArrayList<>();
         PlanningSeed effectiveSeed = seed == null ? PlanningSeed.empty() : seed;
-        return eventSink.capture(events, () -> runLoop(request, effectiveSeed, events));
+        return eventSink.capture(events, () -> runGraph(request, effectiveSeed, events));
     }
 
-    private PlanResponse runLoop(PlanRequest request, PlanningSeed seed, List<PlanningEvent> events) {
-        if (preflight != null) {
-            PreflightResult result = preflight.check(request);
-            if (!result.canStart()) return terminalWithoutRounds(result.state(), result.report());
-            emit(PlanningEventType.PREFLIGHT_PASSED, "预检通过", Map.of());
+    private PlanResponse runGraph(PlanRequest request, PlanningSeed seed, List<PlanningEvent> events) {
+        TravelGraphFactory factory = graphFactory != null ? graphFactory : new TravelGraphFactory(null, eventSink);
+        GraphDefinition<GraphState> definition = factory.build(
+                this::runPreflightNode,
+                state -> runGenerateNode(state, events),
+                state -> runValidateNode(state, events));
+        AtomicReference<PlanningStopReport> guardReport = new AtomicReference<>();
+        LightGraph<GraphState> graph = new LightGraph<>(25, toolPool, 5_000, 10_000);
+        LightGraph.RunResult<GraphState> run = graph.run(definition,
+                GraphState.initial(request, seed, guardrail == null),
+                List.of(cancellationGuard(), guardrailGuard(guardReport)));
+        return mapResponse(run, guardReport);
+    }
+
+    private PreNodeGuard<GraphState> cancellationGuard() {
+        return (node, state) -> node.equals("generate") && cancellationSignal.isCancelled()
+                ? Optional.of("CANCELLED")
+                : Optional.empty();
+    }
+
+    private PreNodeGuard<GraphState> guardrailGuard(AtomicReference<PlanningStopReport> guardReport) {
+        return (node, state) -> {
+            if (!node.equals("generate") || guardrail == null) {
+                return Optional.empty();
+            }
+            Optional<PlanningStopReport> stopped =
+                    guardrail.beforeRound(state.ledgerSnapshot(), state.request().maxRounds());
+            if (stopped.isPresent()) {
+                guardReport.set(stopped.get());
+                emit(PlanningEventType.GUARD_TRIGGERED, stopped.get().reason(), Map.of());
+            }
+            return stopped.map(report -> "GUARDED");
+        };
+    }
+
+    private NodeResult runPreflightNode(GraphState state) {
+        if (preflight == null) {
+            return NodeResult.of(StateDelta.none());
         }
-        List<PlanningRoundSnapshot> rounds = new ArrayList<>();
-        PlanningLedger ledger = new PlanningLedger();
-        List<String> feedback = seed.feedback();
-        TripPlan previousPlan = seed.previousPlan();
-        PlanningRoundSnapshot bestRound = null;
-        long totalElapsedMs = 0;
+        PreflightResult result = preflight.check(state.request());
+        if (!result.canStart()) {
+            return NodeResult.of(StateDelta.preflightStopped(result));
+        }
+        emit(PlanningEventType.PREFLIGHT_PASSED, "预检通过", Map.of());
+        return NodeResult.of(StateDelta.none());
+    }
 
-        for (int round = 1; ; round++) {
-            if (cancellationSignal.isCancelled()) {
-                PlanningStopReport report = new PlanningStopReport("CANCELLED", "用户已取消规划",
-                        "第 " + round + " 轮生成前收到取消信号", "可稍后使用当前最好版本继续规划");
-                if (bestRound == null) return terminalWithoutRounds(PlanningTerminalState.CANCELLED, report);
-                return response(bestRound, totalElapsedMs, PlanStatus.MAX_ROUNDS, report.reason(), rounds,
-                        PlanningTerminalState.CANCELLED, report);
-            }
-            if (bestRound != null && bestRound.passed()) {
-                emit(PlanningEventType.COMPLETED, "两层验收通过，规划完成", Map.of());
-                return response(bestRound, totalElapsedMs, PlanStatus.COMPLETED, "两层验收通过", rounds,
-                        PlanningTerminalState.SUCCESS, null);
-            }
-            if (guardrail != null) {
-                Optional<PlanningStopReport> stopped = guardrail.beforeRound(ledger.snapshot(), request.maxRounds());
-                if (stopped.isPresent()) { emit(PlanningEventType.GUARD_TRIGGERED, stopped.get().reason(), Map.of()); return guarded(bestRound, totalElapsedMs, rounds, stopped.get()); }
-            } else if (round > request.maxRounds()) {
-                return legacyMaxRounds(bestRound, totalElapsedMs, rounds);
-            }
-            safeSetRound(round);
-            int firstEventIndex = events.size();
-            emit(PlanningEventType.ROUND_STARTED, "第 " + round + " 轮开始", Map.of());
+    private NodeResult runGenerateNode(GraphState state, List<PlanningEvent> events) {
+        int round = state.round() + 1;
+        safeSetRound(round);
+        int firstEventIndex = events.size();
+        emit(PlanningEventType.ROUND_STARTED, "第 " + round + " 轮开始", Map.of());
+        emit(PlanningEventType.FACTS_ASSEMBLED, factsSummary(state.facts()), Map.of(
+                "flights", slotStatus(state.facts().flights()),
+                "hotels", slotStatus(state.facts().hotels()),
+                "attractions", slotStatus(state.facts().attractions()),
+                "weather", slotStatus(state.facts().weather())));
 
-            PlanGenerationInput generationInput = new PlanGenerationInput(
-                    request,
-                    round,
-                    previousPlan,
-                    feedback);
-            emit(
-                    PlanningEventType.GENERATION_STARTED,
-                    "正在调用模型生成结构化行程",
-                    Map.of("model", "configured"));
-            PlanGenerationResult generated = retryExecutor.execute(planGenerator, generationInput);
-            totalElapsedMs += generated.elapsedMs();
-            emit(
-                    PlanningEventType.GENERATION_COMPLETED,
-                    "第 " + round + " 轮候选生成完成",
-                    Map.of("elapsedMs", generated.elapsedMs(), "model", generated.model()));
+        PlanGenerationInput generationInput = new PlanGenerationInput(
+                state.request(),
+                round,
+                state.previousPlan(),
+                state.feedback(),
+                state.facts());
+        emit(
+                PlanningEventType.GENERATION_STARTED,
+                "正在调用模型生成结构化行程",
+                Map.of("model", "configured"));
+        PlanGenerationResult generated = retryExecutor.execute(planGenerator, generationInput);
+        emit(
+                PlanningEventType.GENERATION_COMPLETED,
+                "第 " + round + " 轮候选生成完成",
+                Map.of("elapsedMs", generated.elapsedMs(), "model", generated.model()));
+        return NodeResult.of(StateDelta.roundStarted(
+                round, firstEventIndex, generationInput, generated, generated.elapsedMs()));
+    }
 
-            List<String> problems = new ArrayList<>(generated.problems());
-            List<ConstraintCheckResult> constraintResults = List.of();
-            int contractProblemCount = 0;
-            int hardFailureCount = 0;
-            if (generated.plan() != null) {
-                emitSelection(generated.plan());
-                List<String> contractProblems = contractReview.review(request, generated.plan()).problems();
-                contractProblemCount = contractProblems.size();
-                problems.addAll(contractProblems);
-                constraintResults = constraintReviewer.review(request, generated.plan());
-                for (ConstraintCheckResult result : constraintResults) {
-                    if (!result.passed() && result.severity() == ConstraintSeverity.HARD) {
-                        hardFailureCount++;
-                        String evidence = result.evidence().isEmpty()
-                                ? "未提供失败原因"
-                                : String.join("；", result.evidence());
-                        String suggestions = result.suggestions().isEmpty()
-                                ? "请根据检查证据修正"
-                                : String.join("；", result.suggestions());
-                        problems.add(result.code() + " " + result.name() + "：原因：" + evidence
-                                + "；修改：" + suggestions);
-                    }
+    private NodeResult runValidateNode(GraphState state, List<PlanningEvent> events) {
+        PlanRequest request = state.request();
+        PlanGenerationResult generated = state.lastGenerated();
+        List<String> problems = new ArrayList<>(generated.problems());
+        List<ConstraintCheckResult> constraintResults = List.of();
+        int contractProblemCount = 0;
+        int hardFailureCount = 0;
+        if (generated.plan() != null) {
+            emitSelection(generated.plan());
+            List<String> contractProblems = contractReview.review(request, generated.plan()).problems();
+            contractProblemCount = contractProblems.size();
+            problems.addAll(contractProblems);
+            constraintResults = constraintReviewer.review(request, generated.plan());
+            for (ConstraintCheckResult result : constraintResults) {
+                if (!result.passed() && result.severity() == ConstraintSeverity.HARD) {
+                    hardFailureCount++;
+                    String evidence = result.evidence().isEmpty()
+                            ? "未提供失败原因"
+                            : String.join("；", result.evidence());
+                    String suggestions = result.suggestions().isEmpty()
+                            ? "请根据检查证据修正"
+                            : String.join("；", result.suggestions());
+                    problems.add(result.code() + " " + result.name() + "：原因：" + evidence
+                            + "；修改：" + suggestions);
                 }
-            } else if (problems.isEmpty()) {
-                problems.add("缺少可检查的结构化行程");
-                contractProblemCount = 1;
             }
-            boolean passed = problems.isEmpty();
+        } else if (problems.isEmpty()) {
+            problems.add("缺少可检查的结构化行程");
+            contractProblemCount = 1;
+        }
+        boolean coreMissing = state.facts().coreMissing();
+        if (coreMissing) {
+            problems.add("核心事实缺失，禁止正式交付：" + coreMissingReason(state.facts()));
+        }
+        boolean passed = problems.isEmpty();
+        emit(
+                PlanningEventType.REVIEW_COMPLETED,
+                passed ? "两层验收通过" : reviewSummary(contractProblemCount, constraintResults, generated.problems().size()),
+                Map.of("passed", passed, "problems", problems,
+                        "constraintResults", constraintResults,
+                        "contractProblemCount", contractProblemCount,
+                        "hardFailureCount", hardFailureCount));
+
+        if (!passed && state.round() < request.maxRounds()) {
             emit(
-                    PlanningEventType.REVIEW_COMPLETED,
-                    passed ? "两层验收通过" : reviewSummary(contractProblemCount, constraintResults, generated.problems().size()),
-                    Map.of("passed", passed, "problems", problems,
-                            "constraintResults", constraintResults,
-                            "contractProblemCount", contractProblemCount,
-                            "hardFailureCount", hardFailureCount));
-
-            if (!passed && round < request.maxRounds()) {
-                emit(
-                        PlanningEventType.FEEDBACK_PREPARED,
-                        "全部检查问题进入下一轮",
-                        Map.of("problems", problems));
-            } else {
-                emit(
-                        PlanningEventType.MAX_ROUNDS_REACHED,
-                        "达到最大轮次，仍有未解决问题",
-                        Map.of("problems", problems));
-            }
-
-            String fingerprint = hardFingerprint(constraintResults);
-            long estimatedTokens = estimateTokens(generationInput, generated);
-            PlanningRoundSnapshot snapshot = new PlanningRoundSnapshot(
-                    round,
-                    request,
-                    generated.plan(),
-                    generated.model(),
-                    generated.elapsedMs(),
-                    problems,
-                    constraintResults,
-                    feedback,
-                    List.copyOf(events.subList(firstEventIndex, events.size())),
-                    estimatedTokens,
-                    fingerprint);
-            rounds.add(snapshot);
-            ledger.record(new PlanningLedgerEntry(round, estimatedTokens, generated.elapsedMs(), fingerprint));
-
-            if (bestRound == null
-                    || snapshot.problems().size() < bestRound.problems().size()) {
-                bestRound = snapshot;
-            }
-
-            previousPlan = snapshot.plan();
-            feedback = snapshot.problems();
+                    PlanningEventType.FEEDBACK_PREPARED,
+                    "全部检查问题进入下一轮",
+                    Map.of("problems", problems));
+        } else {
+            emit(
+                    PlanningEventType.MAX_ROUNDS_REACHED,
+                    "达到最大轮次，仍有未解决问题",
+                    Map.of("problems", problems));
         }
 
+        String fingerprint = hardFingerprint(constraintResults);
+        long estimatedTokens = estimateTokens(state.lastGenerationInput(), generated);
+        PlanningRoundSnapshot snapshot = new PlanningRoundSnapshot(
+                state.round(),
+                request,
+                generated.plan(),
+                generated.model(),
+                generated.elapsedMs(),
+                problems,
+                constraintResults,
+                state.feedback(),
+                List.copyOf(events.subList(state.firstEventIndex(), events.size())),
+                estimatedTokens,
+                fingerprint);
+
+        if (passed) {
+            emit(PlanningEventType.COMPLETED, "两层验收通过，规划完成", Map.of());
+        }
+
+        PlanningRoundSnapshot currentBest = state.bestRound();
+        PlanningRoundSnapshot bestRoundUpdate = currentBest == null
+                || snapshot.problems().size() < currentBest.problems().size()
+                ? snapshot
+                : null;
+        return NodeResult.of(StateDelta.validated(
+                snapshot.problems(),
+                snapshot.plan(),
+                bestRoundUpdate,
+                snapshot,
+                new PlanningLedgerEntry(state.round(), estimatedTokens, generated.elapsedMs(), fingerprint),
+                passed,
+                coreMissing));
+    }
+
+    private PlanResponse mapResponse(LightGraph.RunResult<GraphState> run,
+            AtomicReference<PlanningStopReport> guardReport) {
+        GraphState state = run.state();
+        switch (run.terminalLabel()) {
+            case "END":
+                return response(state.bestRound(), state.totalElapsedMs(), PlanStatus.COMPLETED,
+                        endReason(state), state.rounds(), PlanningTerminalState.SUCCESS, null);
+            case "GUARDED":
+                if (state.coreFactsMissing()) {
+                    return coreFactsGuarded(state);
+                }
+                return run.stoppedByGuard()
+                        ? guarded(state.bestRound(), state.totalElapsedMs(), state.rounds(), guardReport.get())
+                        : legacyMaxRounds(state.bestRound(), state.totalElapsedMs(), state.rounds());
+            case "PREFLIGHT_FAILED":
+                return terminalWithoutRounds(state.preflightStop().state(), state.preflightStop().report());
+            case "CANCELLED": {
+                PlanningStopReport report = new PlanningStopReport("CANCELLED", "用户已取消规划",
+                        "第 " + (state.round() + 1) + " 轮生成前收到取消信号", "可稍后使用当前最好版本继续规划");
+                if (state.bestRound() == null) {
+                    return terminalWithoutRounds(PlanningTerminalState.CANCELLED, report);
+                }
+                return response(state.bestRound(), state.totalElapsedMs(), PlanStatus.MAX_ROUNDS,
+                        report.reason(), state.rounds(), PlanningTerminalState.CANCELLED, report);
+            }
+            default:
+                throw new IllegalStateException("未知的图终态：" + run.terminalLabel());
+        }
+    }
+
+    private String factsSummary(PlanningFacts facts) {
+        return "四路事实交卷：航班=" + slotStatus(facts.flights()) + "，酒店=" + slotStatus(facts.hotels())
+                + "，景点=" + slotStatus(facts.attractions()) + "，天气=" + slotStatus(facts.weather());
+    }
+
+    private String slotStatus(PlanningFacts.FactSlot slot) {
+        if (slot == null) {
+            return "未查询";
+        }
+        return slot.ok() ? (slot.text().isEmpty() ? "已交代" : "有数据") : "降级：" + slot.note();
+    }
+
+    private String coreMissingReason(PlanningFacts facts) {
+        List<String> parts = new ArrayList<>();
+        if (facts.flights() != null && !facts.flights().ok()) {
+            parts.add("航班（" + facts.flights().note() + "）");
+        }
+        if (facts.hotels() != null && !facts.hotels().ok()) {
+            parts.add("酒店（" + facts.hotels().note() + "）");
+        }
+        return String.join("、", parts);
+    }
+
+    private String endReason(GraphState state) {
+        List<String> warnings = state.facts().warnings();
+        return warnings.isEmpty()
+                ? "两层验收通过"
+                : "两层验收通过（带警告交付：" + String.join("；", warnings) + "）";
+    }
+
+    private PlanResponse coreFactsGuarded(GraphState state) {
+        PlanningStopReport report = new PlanningStopReport("CORE_FACTS_MISSING", "核心事实缺失，禁止正式交付",
+                coreMissingReason(state.facts()), "补齐快照覆盖或改用覆盖范围内目的地后重试");
+        return response(state.bestRound(), state.totalElapsedMs(), PlanStatus.MAX_ROUNDS,
+                report.reason() + "：" + coreMissingReason(state.facts()), state.rounds(),
+                PlanningTerminalState.GUARDED, report);
     }
 
     private PlanResponse legacyMaxRounds(PlanningRoundSnapshot bestRound, long totalElapsedMs,
@@ -317,7 +453,7 @@ public class TravelPlanningEngine {
         Map<String, Object> selected = new java.util.LinkedHashMap<>();
         for (int index = 0; index < keysAndValues.length; index += 2) {
             Object value = keysAndValues[index + 1];
-            if (value != null) selected.put((String) keysAndValues[index], value);
+            selected.put((String) keysAndValues[index], value);
         }
         return selected;
     }

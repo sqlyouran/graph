@@ -40,6 +40,7 @@ public class ContextAssembler {
         PlanRequest request = input.originalRequest();
 
         String constraint = constraintSection(input);
+        String facts = factsSection(input);
         String fullHistory = input.round() == 1 ? "" : historySection(input.previousPlan());
         String minimalHistory = input.round() == 1 ? "" : minimalHistorySection(input.previousPlan());
         List<Preference> preferences = profile == null
@@ -55,34 +56,38 @@ public class ContextAssembler {
         String profileText = profileBody;
         boolean profileIncluded = true;
 
-        if (!fits(constraint, history, profileText, tail, usableBudget)) {
+        if (!fits(constraint, facts, history, profileText, tail, usableBudget)) {
             dropped.add(new PromptContext.DroppedSection("profile", "剩余预算不足"));
             profileIncluded = false;
             profileText = "";
             // 首轮没有历史区，第二级级联无从发生，不能误报 history-detail。
-            if (!history.isEmpty() && !fits(constraint, history, profileText, tail, usableBudget)) {
+            if (!history.isEmpty() && !fits(constraint, facts, history, profileText, tail, usableBudget)) {
                 dropped.add(new PromptContext.DroppedSection("history-detail", "超出剩余预算"));
                 history = minimalHistory;
             }
         }
 
-        String userPrompt = renderUser(constraint, history, profileText, tail);
+        String userPrompt = renderUser(constraint, facts, history, profileText, tail);
         String systemPrompt = INSTRUCTION.stripTrailing();
         List<String> included = new ArrayList<>(List.of("INSTRUCTION", "CONSTRAINT"));
+        if (!facts.isEmpty()) included.add("FACTS");
         if (!history.isEmpty()) included.add("HISTORY");
         if (profileIncluded) included.add("PROFILE");
         return new PromptContext(systemPrompt, userPrompt, included, dropped,
                 estimateTokens(systemPrompt + "\n" + userPrompt), usableBudget);
     }
 
-    private boolean fits(String constraint, String history, String profileText, String tail, int usableBudget) {
+    private boolean fits(String constraint, String facts, String history, String profileText, String tail, int usableBudget) {
         String systemPrompt = INSTRUCTION.stripTrailing();
-        return estimateTokens(systemPrompt + "\n" + renderUser(constraint, history, profileText, tail)) <= usableBudget;
+        return estimateTokens(systemPrompt + "\n" + renderUser(constraint, facts, history, profileText, tail)) <= usableBudget;
     }
 
-    private String renderUser(String constraint, String history, String profileText, String tail) {
+    private String renderUser(String constraint, String facts, String history, String profileText, String tail) {
         StringBuilder out = new StringBuilder();
         out.append("### SECTION:CONSTRAINT\n").append(constraint).append('\n');
+        if (!facts.isEmpty()) {
+            out.append("\n### SECTION:FACTS\n").append(facts).append('\n');
+        }
         if (!history.isEmpty()) {
             out.append("\n### SECTION:HISTORY\n").append(history).append('\n');
         }
@@ -91,6 +96,29 @@ public class ContextAssembler {
         }
         out.append("\n### SECTION:CONSTRAINT\n").append(tail);
         return out.toString();
+    }
+
+    /** 事实快照段：有数据的直接用原值，失败的明确说暂无数据——都不许重复调同一批工具。 */
+    private String factsSection(PlanGenerationInput input) {
+        PlanningFacts facts = input.facts();
+        if (facts == null || !facts.present()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        out.append("【事实快照（系统已并行查询）】\n");
+        for (PlanningFacts.FactSlot slot : facts.slots()) {
+            out.append('[').append(slot.source()).append("] ");
+            if (slot.ok() && !slot.text().isEmpty()) {
+                out.append(slot.text()).append("。直接使用以上原值，不要再调用对应工具。");
+            } else if (slot.ok()) {
+                out.append("该来源暂无快照数据，如确有需要可调用对应工具查询一次。");
+            } else {
+                out.append("查询失败：").append(slot.note())
+                        .append("。明确回复该来源暂无数据，不得编造、不得用常识或其他日期补造。");
+            }
+            out.append('\n');
+        }
+        return out.toString().stripTrailing();
     }
 
     private String constraintSection(PlanGenerationInput input) {
