@@ -114,15 +114,35 @@ public class PlanChatService implements PlanGenerator {
             }
             return PlanGenerationResult.success(plan, model, elapsedMs);
         } catch (RuntimeException exception) {
+            if (!isTimeout(exception)) {
+                // 模型偶发用散文代替结构化 JSON，属于一次性抽风：先原样重试一轮，仍失败再走兜底。
+                TripPlan retried = retryParseOnce(context);
+                if (retried != null) {
+                    return PlanGenerationResult.success(retried, model, clock.millis() - startedAt);
+                }
+            }
             elapsedMs = clock.millis() - startedAt;
             if (fallback != null) {
                 log.warn(isTimeout(exception)
                         ? "Model response timed out; using fact-backed fallback"
-                        : "Structured TripPlan parsing failed; using fact-backed fallback", exception);
+                        : "Structured TripPlan parsing failed after one retry; using fact-backed fallback", exception);
                 return PlanGenerationResult.success(fallback.generate(input.originalRequest()),
                         model + "+fact-fallback", elapsedMs);
             }
             return new PlanGenerationResult(null, model, elapsedMs, java.util.List.of(PARSE_FAILURE));
+        }
+    }
+
+    private TripPlan retryParseOnce(PromptContext context) {
+        try {
+            return chatClient.prompt()
+                    .system(context.systemPrompt())
+                    .user(context.userPrompt())
+                    .call()
+                    .entity(TripPlan.class);
+        } catch (RuntimeException retryFailure) {
+            log.warn("TripPlan parse retry also failed; falling back", retryFailure);
+            return null;
         }
     }
 

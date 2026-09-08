@@ -46,7 +46,7 @@ public class TravelPlanningEngine {
         this.retryExecutor = retryExecutor;
         this.cancellationSignal = cancellationSignal;
         this.graphFactory = graphFactory;
-        this.toolPool = newToolPool();
+        this.toolPool = new PropagatingExecutor(newToolPool());
     }
 
     TravelPlanningEngine(PlanGenerator planGenerator, BasicContractReview contractReview,
@@ -78,6 +78,30 @@ public class TravelPlanningEngine {
             thread.setDaemon(true);
             return thread;
         });
+    }
+
+    /** 事件上下文透传池：事实节点在池线程发射事件，sink 里的会话/轮次需随任务跨线程携带。 */
+    private final class PropagatingExecutor extends java.util.concurrent.AbstractExecutorService {
+        private final ExecutorService delegate;
+
+        PropagatingExecutor(ExecutorService delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        protected <T> java.util.concurrent.RunnableFuture<T> newTaskFor(java.util.concurrent.Callable<T> callable) {
+            return super.newTaskFor(eventSink.propagate(callable));
+        }
+
+        @Override public void execute(Runnable command) { delegate.execute(command); }
+        @Override public void shutdown() { delegate.shutdown(); }
+        @Override public List<Runnable> shutdownNow() { return delegate.shutdownNow(); }
+        @Override public boolean isShutdown() { return delegate.isShutdown(); }
+        @Override public boolean isTerminated() { return delegate.isTerminated(); }
+        @Override public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit)
+                throws InterruptedException {
+            return delegate.awaitTermination(timeout, unit);
+        }
     }
 
     @jakarta.annotation.PreDestroy

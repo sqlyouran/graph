@@ -127,6 +127,17 @@ class PlanChatServiceTests {
         verifyNoInteractions(fallback);
     }
 
+    @Test
+    void tripFlightToleratesOffsetSuffixOnModelTimes() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        TripFlight flight = mapper.readValue("""
+                {"flightNumber":"MU5211","origin":"上海","destination":"杭州",
+                 "departureTime":"2026-10-01T08:10:00+08:00","arrivalTime":"2026-10-01T09:15:00","price":520}
+                """, TripFlight.class);
+        assertThat(flight.departureTime()).isEqualTo(java.time.LocalDateTime.of(2026, 10, 1, 8, 10));
+        assertThat(flight.arrivalTime()).isEqualTo(java.time.LocalDateTime.of(2026, 10, 1, 9, 15));
+    }
+
     private void stubResponse(TripPlan plan) {
         when(chatClient.prompt()).thenReturn(requestSpec);
         when(requestSpec.system(anyString())).thenReturn(requestSpec);

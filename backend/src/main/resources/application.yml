@@ -17,7 +17,10 @@ spring:
         options:
           model: qwen3.8-flash
           temperature: 0.2
-          max-completion-tokens: 8192
+          # 注意：qwen3.8-flash 默认开启思考，且思考与回答共用该预算；
+          # yml 的 extra-body.enable_thinking 经 Spring AI 1.1.2 序列化后是嵌套字段，网关不认，实际关不掉思考。
+          # 预算必须大于"思考峰值+完整 TripPlan JSON"，实测思考可达 ~8k tokens，故留 32768。
+          max-completion-tokens: 32768
           extra-body:
             enable_thinking: false
 
