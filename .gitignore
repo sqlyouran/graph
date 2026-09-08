@@ -39,6 +39,9 @@ logs/
 *.temp
 .DS_Store
 
+# 临时验证产物（截图 / 导出稿等），本地一次性使用，不进仓库
+tmp-verify/
+
 # Local planning session traces (runtime output, 本地 trace 信息，不进仓库)
 backend/data/planning-sessions/
 
